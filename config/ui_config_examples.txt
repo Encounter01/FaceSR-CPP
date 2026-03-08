@@ -1,0 +1,337 @@
+# UI 配置示例集合
+# 复制所需配置到 ui_config.ini 即可使用
+
+# ========================================
+# 示例 1: 默认蓝色渐变主题（推荐）
+# ========================================
+[general]
+enable_frosted=true
+enable_custom_background=true
+
+[background]
+type=gradient
+gradient_type=linear
+start_color=#2C3E50
+end_color=#3498DB
+start_x=0.0
+start_y=0.0
+end_x=1.0
+end_y=1.0
+
+[frosted]
+enabled=true
+blur_radius=25
+opacity=200
+tint_color=#FFFFFF
+
+[theme]
+primary_color=#4CAF50
+accent_color=#45a049
+text_color=#FFFFFF
+border_color=rgba(255, 255, 255, 100)
+panel_background=rgba(255, 255, 255, 150)
+
+
+# ========================================
+# 示例 2: 经典深色主题
+# ========================================
+[general]
+enable_frosted=true
+enable_custom_background=true
+
+[background]
+type=gradient
+gradient_type=linear
+start_color=#1a1a2e
+end_color=#16213e
+start_x=0.0
+start_y=0.0
+end_x=0.0
+end_y=1.0
+
+[frosted]
+enabled=true
+blur_radius=30
+opacity=180
+tint_color=#000000
+
+[theme]
+primary_color=#0f3460
+accent_color=#16213e
+text_color=#FFFFFF
+border_color=rgba(255, 255, 255, 80)
+panel_background=rgba(0, 0, 0, 120)
+
+
+# ========================================
+# 示例 3: 清新绿色主题
+# ========================================
+[general]
+enable_frosted=true
+enable_custom_background=true
+
+[background]
+type=gradient
+gradient_type=linear
+start_color=#56ab2f
+end_color=#a8e063
+start_x=0.0
+start_y=0.0
+end_x=1.0
+end_y=1.0
+
+[frosted]
+enabled=true
+blur_radius=20
+opacity=200
+tint_color=#FFFFFF
+
+[theme]
+primary_color=#4CAF50
+accent_color=#45a049
+text_color=#FFFFFF
+border_color=rgba(255, 255, 255, 120)
+panel_background=rgba(255, 255, 255, 160)
+
+
+# ========================================
+# 示例 4: 紫色科技风
+# ========================================
+[general]
+enable_frosted=true
+enable_custom_background=true
+
+[background]
+type=gradient
+gradient_type=radial
+start_color=#667eea
+end_color=#764ba2
+center_x=0.5
+center_y=0.5
+radius=1.0
+
+[frosted]
+enabled=true
+blur_radius=28
+opacity=190
+tint_color=#FFFFFF
+
+[theme]
+primary_color=#667eea
+accent_color=#764ba2
+text_color=#FFFFFF
+border_color=rgba(255, 255, 255, 100)
+panel_background=rgba(255, 255, 255, 140)
+
+
+# ========================================
+# 示例 5: 橙色日落主题
+# ========================================
+[general]
+enable_frosted=true
+enable_custom_background=true
+
+[background]
+type=gradient
+gradient_type=linear
+start_color=#f12711
+end_color=#f5af19
+start_x=0.0
+start_y=0.0
+end_x=1.0
+end_y=1.0
+
+[frosted]
+enabled=true
+blur_radius=22
+opacity=210
+tint_color=#FFFFFF
+
+[theme]
+primary_color=#f5af19
+accent_color=#f12711
+text_color=#FFFFFF
+border_color=rgba(255, 255, 255, 110)
+panel_background=rgba(255, 255, 255, 155)
+
+
+# ========================================
+# 示例 6: 简约灰色主题
+# ========================================
+[general]
+enable_frosted=true
+enable_custom_background=true
+
+[background]
+type=gradient
+gradient_type=linear
+start_color=#bdc3c7
+end_color=#2c3e50
+start_x=0.0
+start_y=0.0
+end_x=0.0
+end_y=1.0
+
+[frosted]
+enabled=true
+blur_radius=18
+opacity=195
+tint_color=#FFFFFF
+
+[theme]
+primary_color=#34495e
+accent_color=#2c3e50
+text_color=#FFFFFF
+border_color=rgba(255, 255, 255, 90)
+panel_background=rgba(255, 255, 255, 145)
+
+
+# ========================================
+# 示例 7: 纯色背景（性能优先）
+# ========================================
+[general]
+enable_frosted=true
+enable_custom_background=true
+
+[background]
+type=solid
+solid_color=#2C3E50
+
+[frosted]
+enabled=true
+blur_radius=15
+opacity=200
+tint_color=#FFFFFF
+
+[theme]
+primary_color=#4CAF50
+accent_color=#45a049
+text_color=#FFFFFF
+border_color=rgba(255, 255, 255, 100)
+panel_background=rgba(255, 255, 255, 150)
+
+
+# ========================================
+# 示例 8: 图片背景
+# ========================================
+[general]
+enable_frosted=true
+enable_custom_background=true
+
+[background]
+type=image
+image_path=D:/background.jpg
+solid_color=#2C3E50
+
+[frosted]
+enabled=true
+blur_radius=30
+opacity=220
+tint_color=#FFFFFF
+
+[theme]
+primary_color=#4CAF50
+accent_color=#45a049
+text_color=#FFFFFF
+border_color=rgba(255, 255, 255, 120)
+panel_background=rgba(255, 255, 255, 180)
+
+
+# ========================================
+# 示例 9: 禁用特效（兼容模式）
+# ========================================
+[general]
+enable_frosted=false
+enable_custom_background=false
+
+[background]
+type=solid
+solid_color=#f5f5f5
+
+[frosted]
+enabled=false
+blur_radius=0
+opacity=255
+tint_color=#FFFFFF
+
+[theme]
+primary_color=#4CAF50
+accent_color=#45a049
+text_color=#000000
+border_color=rgba(0, 0, 0, 50)
+panel_background=rgba(255, 255, 255, 255)
+
+
+# ========================================
+# 示例 10: 极简透明风格
+# ========================================
+[general]
+enable_frosted=true
+enable_custom_background=true
+
+[background]
+type=gradient
+gradient_type=linear
+start_color=#ffffff
+end_color=#ecf0f1
+start_x=0.0
+start_y=0.0
+end_x=0.0
+end_y=1.0
+
+[frosted]
+enabled=true
+blur_radius=10
+opacity=150
+tint_color=#FFFFFF
+
+[theme]
+primary_color=#3498db
+accent_color=#2980b9
+text_color=#2c3e50
+border_color=rgba(52, 152, 219, 80)
+panel_background=rgba(255, 255, 255, 100)
+
+
+# ========================================
+# 参数说明
+# ========================================
+
+# [general]
+# enable_frosted: 启用毛玻璃效果 (true/false)
+# enable_custom_background: 启用自定义背景 (true/false)
+
+# [background]
+# type: 背景类型 (solid/gradient/image)
+# gradient_type: 渐变类型 (linear/radial)
+# solid_color: 纯色背景颜色
+# start_color: 渐变起始颜色
+# end_color: 渐变结束颜色
+# start_x, start_y: 线性渐变起点 (0.0-1.0)
+# end_x, end_y: 线性渐变终点 (0.0-1.0)
+# center_x, center_y: 径向渐变中心 (0.0-1.0)
+# radius: 径向渐变半径 (0.0-1.0+)
+# image_path: 背景图片路径（绝对路径）
+
+# [frosted]
+# enabled: 启用毛玻璃 (true/false)
+# blur_radius: 模糊半径 (0-50)，0 表示无模糊
+# opacity: 不透明度 (0-255)
+# tint_color: 色调颜色
+
+# [theme]
+# primary_color: 主题色（主要按钮）
+# accent_color: 强调色（按钮悬停）
+# text_color: 文本颜色
+# border_color: 边框颜色（支持 rgba）
+# panel_background: 面板背景色（支持 rgba）
+
+# 颜色格式支持:
+# - #RGB (例如: #F00)
+# - #RRGGBB (例如: #FF0000)
+# - rgba(r, g, b, a) (例如: rgba(255, 0, 0, 128))
+
+# 性能建议:
+# - 低配置设备: blur_radius=0-15, type=solid
+# - 中等配置: blur_radius=15-25, type=gradient
+# - 高配置设备: blur_radius=25-40, type=gradient/image

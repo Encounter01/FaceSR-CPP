@@ -1,0 +1,63 @@
+# Build artifacts
+build/
+out/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.sln
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.aps
+*.ncb
+*.sdf
+*.opensdf
+ipch/
+
+# CMake Presets (user-specific)
+CMakeUserPresets.json
+
+# Model checkpoints (large binary files - download separately)
+checkpoints/*
+!checkpoints/.gitkeep
+
+# Datasets (large files - download separately)
+datasets/
+data/
+
+# Results output
+results/
+
+# Thesis / academic documents (internal use only)
+thesis/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg
+*.egg-info/
+.env
+.venv
+dist/
+*.spec
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
