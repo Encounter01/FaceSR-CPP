@@ -6,6 +6,7 @@
 #include "models/losses.h"
 #include "common/logger.h"
 #include <torch/nn/functional.h>
+#include <torch/script.h>
 
 namespace F = torch::nn::functional;
 
@@ -97,12 +98,48 @@ torch::Tensor VGGFeatureExtractor::forward(torch::Tensor x) {
 
 void VGGFeatureExtractor::load_pretrained(const std::string& weight_path) {
     try {
-        torch::load(features_, weight_path);
+        // 加载 TorchScript 模型，按顺序提取卷积层权重到自建的 features_ 中
+        auto jit_module = torch::jit::load(weight_path);
+        jit_module.eval();
+
+        // 收集 JIT 模型中有参数的层（按顺序）
+        std::vector<std::pair<torch::Tensor, torch::Tensor>> jit_conv_params;
+        for (const auto& p : jit_module.named_parameters()) {
+            // weight 和 bias 成对出现，先收集 weight
+            if (p.name.find("weight") != std::string::npos) {
+                jit_conv_params.push_back({p.value, {}});
+            } else if (p.name.find("bias") != std::string::npos && !jit_conv_params.empty()) {
+                jit_conv_params.back().second = p.value;
+            }
+        }
+
+        // 收集自建 features_ 中的 Conv2d 层（按顺序）
+        std::vector<torch::nn::Conv2dImpl*> my_convs;
+        for (size_t i = 0; i < features_->size(); ++i) {
+            auto conv = features_[i]->as<torch::nn::Conv2dImpl>();
+            if (conv) {
+                my_convs.push_back(conv);
+            }
+        }
+
+        int loaded = 0;
+        size_t count = std::min(my_convs.size(), jit_conv_params.size());
+        for (size_t i = 0; i < count; ++i) {
+            if (my_convs[i]->weight.sizes() == jit_conv_params[i].first.sizes()) {
+                my_convs[i]->weight.data().copy_(jit_conv_params[i].first.data());
+                if (jit_conv_params[i].second.defined() && my_convs[i]->bias.defined()) {
+                    my_convs[i]->bias.data().copy_(jit_conv_params[i].second.data());
+                }
+                loaded++;
+            }
+        }
+
         // 冻结参数
         for (auto& param : parameters()) {
             param.set_requires_grad(false);
         }
-        LOG_INFO("Loaded VGG pretrained weights from: ", weight_path);
+        LOG_INFO("Loaded VGG pretrained weights from: ", weight_path,
+                 " (", loaded, "/", my_convs.size(), " conv layers matched)");
     } catch (const std::exception& e) {
         LOG_ERROR("Failed to load VGG weights: ", e.what());
         throw;

@@ -1,6 +1,0 @@
-<Project>
-  <PropertyGroup>
-    <!-- 使用vcpkg内置DLL复制机制, 避免pwsh.exe未安装时报错 -->
-    <VcpkgXUseBuiltInApplocalDeps>true</VcpkgXUseBuiltInApplocalDeps>
-  </PropertyGroup>
-</Project>

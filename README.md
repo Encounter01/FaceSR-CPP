@@ -156,17 +156,22 @@ facesr_train --resume checkpoints --epochs 200
 
 ```bash
 # 处理单张图像
-facesr_test --model checkpoints/generator_best.pt --input image.jpg --output result.png
+facesr_test --model checkpoints/generator_epoch190.pt --input image.jpg --output result.png
 
 # 批量处理
-facesr_test --model checkpoints/generator_best.pt --input input_folder --output output_folder
+facesr_test --model checkpoints/generator_epoch190.pt --input input_folder --output output_folder
 
 # 指定设备模式
-facesr_test --model checkpoints/generator_best.pt --input image.jpg --device hybrid
+facesr_test --model checkpoints/generator_epoch190.pt --input image.jpg --device hybrid
 
 # 仅使用CPU
-facesr_test --model checkpoints/generator_best.pt --input image.jpg --cpu
+facesr_test --model checkpoints/generator_epoch190.pt --input image.jpg --cpu
 ```
+
+> 当前仓库内 `results/eval_reports/checkpoint_comparison_summary.csv` 的 3000 张测试集复评结果显示：
+> `generator_epoch190.pt` 的平均 `PSNR/SSIM` 为 `29.552015 / 0.843166`，
+> 高于 `generator_best.pt` 的 `29.441479 / 0.840618`。
+> 因此，当前推理默认推荐优先使用 `checkpoints/generator_epoch190.pt`。
 
 **推理参数说明：**
 
@@ -273,6 +278,18 @@ FaceSR_CPP/
 | 阶段3 | 80 - 200 | L1 + VGG + GAN对抗损失 | 对抗训练生成高频细节 |
 
 阶段边界可在 `config/train_config.ini` 中通过 `phase1_epochs` 和 `phase2_epochs` 参数调整。
+
+### 更锐利的训练配置
+
+如果你更在意清晰度和面部细节，而不是只追求更平滑的 `PSNR`，优先查看：
+
+- `config/train_config_sharper.ini`
+- `config/finetune_phase_a.ini`
+- `config/finetune_phase_b.ini`
+- `config/finetune_phase_c.ini`
+
+这组配置会启用 `models/vgg19_features.pt`、CBAM attention、spectral norm，
+并打开 frequency / gradient loss，用来抑制“看起来发糊、边缘偏软”的问题。
 
 ## 配置文件说明
 
@@ -381,8 +398,11 @@ A: CMake会自动检测，优先使用Qt6，回退Qt5。无需手动指定版本
 下载后放置到 `checkpoints/` 目录：
 ```
 checkpoints/
-└── generator_best.pt
+  generator_epoch190.pt
+  generator_best.pt
 ```
+
+如果只保留一个当前推荐的推理权重，优先使用 `generator_epoch190.pt`。
 
 ## 贡献
 

@@ -30,11 +30,22 @@ checkpoints/*
 datasets/
 data/
 
-# Results output
+# Results output (keep results/eval_reports/ for documentation)
 results/
+!results/eval_reports/
+!results/eval_reports/**
 
 # Thesis / academic documents (internal use only)
 thesis/
+
+# Large archive files
+*.tar.gz
+*.tar
+*.zip
+
+# Temporary evaluation files
+tmp_eval/
+tmp/
 
 # Python
 __pycache__/
