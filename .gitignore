@@ -35,8 +35,6 @@ results/
 !results/eval_reports/
 !results/eval_reports/**
 
-# Thesis / academic documents (internal use only)
-thesis/
 
 # Large archive files
 *.tar.gz

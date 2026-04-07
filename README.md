@@ -237,6 +237,29 @@ FaceSR_CPP/
 ├── config/                     # 配置文件
 │   ├── train_config.ini        # 训练配置
 │   └── ui_config.ini           # UI样式配置
+├── scripts/                    # 辅助脚本
+│   ├── evaluation/            # 评估脚本
+│   │   ├── evaluate_model.py
+│   │   ├── evaluate_model_final.py
+│   │   └── diagnose_sr_issue.py
+│   ├── analysis/              # 分析与报告脚本
+│   │   ├── analyze_checkpoint_quality.py
+│   │   ├── training_decision_analysis.py
+│   │   ├── generate_thesis_assessment.py
+│   │   ├── generate_root_cause_analysis.py
+│   │   └── generate_final_summary.py
+│   ├── data/                  # 数据处理脚本
+│   │   ├── extract_and_prepare.py
+│   │   └── gen_lr.py
+│   ├── autodl_setup.sh
+│   ├── finetune.sh
+│   ├── train.sh
+│   └── train.bat
+├── docs/                       # 项目文档
+│   ├── QUICKSTART.md
+│   └── EVALUATION.md
+├── thesis/                     # 论文与答辩材料
+├── models/                     # 预训练特征模型
 ├── data/                       # 数据目录
 │   ├── train/
 │   │   ├── HR/
@@ -249,8 +272,6 @@ FaceSR_CPP/
 │       └── LR/
 ├── checkpoints/                # 模型权重
 ├── results/                    # 输出结果
-├── scripts/                    # 辅助脚本
-├── thesis/                     # 论文文档
 ├── CMakeLists.txt              # CMake配置
 └── README.md
 ```
