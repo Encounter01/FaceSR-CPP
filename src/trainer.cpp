@@ -67,8 +67,7 @@ Trainer::Trainer(const TrainConfig& config)
     : config_(config)
     , device_(initDevice())
     , loss_fn_(config.pixel_weight, config.perceptual_weight, config.gan_weight,
-               config.pixel_type, config.gan_type, constants::VGG_FEATURE_LAYER,
-               config.frequency_weight, config.gradient_weight) {
+               config.pixel_type, config.gan_type) {
 
     LOG_INFO("Using device: ", device_.is_cuda() ? "CUDA" : "CPU");
 
@@ -78,9 +77,9 @@ Trainer::Trainer(const TrainConfig& config)
 
     // 构建生成器: RRDB网络
     // 参数: 输入3通道, 输出3通道, 64个特征通道, 23个RRDB块, 增长通道32, 4倍放大
-    generator_ = RRDBNet(3, 3, constants::RRDB_NUM_FEAT,
-                         constants::RRDB_NUM_BLOCK,
-                         constants::RRDB_NUM_GROW_CH,
+    generator_ = RRDBNet(3, 3, constants::RRDB_NUM_FEATURES,
+                         constants::RRDB_NUM_BLOCKS,
+                         constants::RRDB_GROWTH_CHANNELS,
                          config_.scale,
                          config_.use_attention);
     generator_->to(device_);  // 将模型参数移到目标设备（GPU/CPU）
@@ -101,7 +100,7 @@ Trainer::Trainer(const TrainConfig& config)
     // 如果提供了VGG预训练权重路径，加载权重
     if (!config_.vgg_weights_path.empty()) {
         LOG_INFO("Loading VGG weights from: ", config_.vgg_weights_path);
-        loss_fn_.loadVGGWeights(config_.vgg_weights_path);
+        loss_fn_.load_vgg_weights(config_.vgg_weights_path);
     }
     loss_fn_.to(device_);
 
@@ -120,7 +119,7 @@ Trainer::Trainer(const TrainConfig& config)
 
     // 构建数据加载器
     // 1. 创建FaceSRDataset（启用数据增强）
-    auto dataset = FaceSRDataset(config_.train_hr_dir, config_.train_lr_dir,
+    auto dataset = utils::FaceSRDataset(config_.train_hr_dir, config_.train_lr_dir,
                                   config_.hr_size, config_.lr_size, true)
         // 2. .map(Stack<>): 将多个 Example<> 堆叠为 batch
         // Stack会把多个 [3,64,64] 的LR张量堆叠为 [B,3,64,64]
@@ -183,51 +182,48 @@ double Trainer::train_epoch(int epoch) {
         // 第1步: 训练判别器 D
         // 目标: 让D能正确区分真实HR图像和生成的SR图像
         // ================================================================
-        optimizer_d_->zero_grad();  // 清零判别器的梯度缓存
+        // Keep pixel/perceptual-only phases from updating the discriminator.
+        if (use_gan) {
+            optimizer_d_->zero_grad();
 
-        // 生成假图像（不需要生成器的梯度，用NoGradGuard节省内存）
-        torch::Tensor sr_for_d;
-        {
-            torch::NoGradGuard no_grad;  // 临时禁用梯度计算
-            sr_for_d = generator_->forward(lr_data);  // G(LR) = SR
+            // Generate SR without generator gradients for discriminator training.
+            torch::Tensor sr_for_d;
+            {
+                torch::NoGradGuard no_grad;
+                sr_for_d = generator_->forward(lr_data);  // G(LR) = SR
+            }
+
+            auto real_images = hr_data;
+            if (config_.r1_weight > 0.0) {
+                real_images = real_images.detach().requires_grad_(true);
+            }
+
+            auto disc_real = discriminator_->forward(real_images);
+            auto loss_real = models::GANLoss(config_.gan_type).forward(disc_real, true, true);
+
+            // Detach SR so discriminator updates do not backprop into G.
+            auto disc_fake = discriminator_->forward(sr_for_d.detach());
+            auto loss_fake = models::GANLoss(config_.gan_type).forward(disc_fake, false, true);
+
+            auto d_loss = (loss_real + loss_fake) * 0.5;
+
+            // R1 penalty is only meaningful during adversarial training.
+            if (config_.r1_weight > 0.0) {
+                auto grad_outputs = torch::ones_like(disc_real);
+                auto grads = torch::autograd::grad(
+                    {disc_real.sum()},
+                    {real_images},
+                    {grad_outputs},             // grad_outputs
+                    /*retain_graph=*/true,
+                    /*create_graph=*/true
+                );
+                auto r1_penalty = grads[0].square().view({real_images.size(0), -1}).sum(1).mean();
+                d_loss = d_loss + config_.r1_weight * r1_penalty;
+            }
+
+            d_loss.backward();
+            optimizer_d_->step();
         }
-
-        // 真实图像判别: D(HR) 应接近 1
-        // 如果启用R1正则化，需要对真实图像保留梯度
-        auto real_images = hr_data;
-        if (use_gan && config_.r1_weight > 0.0) {
-            real_images = real_images.detach().requires_grad_(true);
-        }
-
-        auto disc_real = discriminator_->forward(real_images);
-        auto loss_real = GANLoss(config_.gan_type).forward(disc_real, true, true);
-
-        // 假图像判别: D(SR) 应接近 0
-        // .detach(): 切断与生成器的梯度连接（判别器训练不影响生成器）
-        auto disc_fake = discriminator_->forward(sr_for_d.detach());
-        auto loss_fake = GANLoss(config_.gan_type).forward(disc_fake, false, true);
-
-        // 判别器总损失 = (真实损失 + 假损失) / 2
-        auto d_loss = (loss_real + loss_fake) * 0.5;
-
-        // R1 梯度惩罚（仅在GAN阶段且r1_weight>0时启用）
-        // R1正则化惩罚判别器对真实数据的梯度范数，防止判别器过拟合
-        // 论文: "Which Training Methods for GANs do actually Converge?" (Mescheder et al., 2018)
-        if (use_gan && config_.r1_weight > 0.0) {
-            auto grad_outputs = torch::ones_like(disc_real);
-            auto grads = torch::autograd::grad(
-                {disc_real.sum()},          // 输出
-                {real_images},              // 输入（需要梯度）
-                {grad_outputs},             // grad_outputs
-                /*retain_graph=*/true,
-                /*create_graph=*/true       // 需要二阶梯度
-            );
-            auto r1_penalty = grads[0].square().view({real_images.size(0), -1}).sum(1).mean();
-            d_loss = d_loss + config_.r1_weight * r1_penalty;
-        }
-
-        d_loss.backward();         // 反向传播计算梯度
-        optimizer_d_->step();      // 更新判别器参数
 
         // ================================================================
         // 第2步: 训练生成器 G
@@ -277,10 +273,10 @@ double Trainer::train_epoch(int epoch) {
 double Trainer::validate(int epoch) {
     generator_->eval();  // 设置为评估模式（关闭Dropout，BN使用滑动统计量）
 
-    MetricCalculator metrics;
+    utils::MetricCalculator metrics;
 
     // 创建验证数据集（无数据增强，batch_size=1）
-    auto val_dataset = FaceSRDataset(config_.val_hr_dir, config_.val_lr_dir,
+    auto val_dataset = utils::FaceSRDataset(config_.val_hr_dir, config_.val_lr_dir,
                                       config_.hr_size, config_.lr_size, false)
         .map(torch::data::transforms::Stack<torch::data::Example<>>());
 
@@ -313,7 +309,7 @@ double Trainer::validate(int epoch) {
 
         // 保存第一张验证结果的对比图（LR vs SR vs HR）
         if (!first_saved) {
-            auto comparison = image_utils::create_comparison_image(
+            auto comparison = utils::create_comparison_image(
                 lr_data.cpu(), sr.cpu(), hr_data.cpu());
             std::string save_path = config_.result_dir + "/val_epoch_" +
                                      std::to_string(epoch) + ".png";

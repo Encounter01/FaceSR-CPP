@@ -231,7 +231,8 @@ target_link_libraries(facesr_test PRIVATE
 # --- facesr_gui_app GUI可执行程序 (可选) ---
 if(BUILD_GUI)
     add_executable(facesr_gui_app
-        src/main_gui.cpp  # GUI入口
+        src/main_gui.cpp
+        src/inference.cpp
     )
     target_include_directories(facesr_gui_app PRIVATE ${CMAKE_SOURCE_DIR}/include)
     target_link_libraries(facesr_gui_app PRIVATE

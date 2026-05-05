@@ -9,7 +9,6 @@
 namespace F = torch::nn::functional;
 
 namespace facesr {
-namespace models {
 
 // ==================== ResidualDenseBlock ====================
 
@@ -71,7 +70,8 @@ torch::Tensor RRDBImpl::forward(torch::Tensor x) {
 
 RRDBNetImpl::RRDBNetImpl(int in_channels, int out_channels,
                          int num_feat, int num_block,
-                         int num_grow_ch, int scale)
+                         int num_grow_ch, int scale,
+                         bool use_attention)
     : scale_(scale) {
 
     // 浅层特征提取
@@ -102,6 +102,10 @@ RRDBNetImpl::RRDBNetImpl(int in_channels, int out_channels,
         torch::nn::Conv2d(torch::nn::Conv2dOptions(num_feat, num_feat, 3).padding(1)));
     conv_last_ = register_module("conv_last",
         torch::nn::Conv2d(torch::nn::Conv2dOptions(num_feat, out_channels, 3).padding(1)));
+
+    if (use_attention) {
+        attention_ = register_module("attention", CBAM(num_feat));
+    }
 
     init_weights();
 }
@@ -134,6 +138,10 @@ torch::Tensor RRDBNetImpl::forward(torch::Tensor x) {
     // 全局残差连接
     feat = feat + body_feat;
 
+    if (attention_) {
+        feat = attention_(feat);
+    }
+
     // 上采样 (使用最近邻插值 + 卷积)
     feat = F::interpolate(feat, F::InterpolateFuncOptions()
         .scale_factor(std::vector<double>{2.0, 2.0})
@@ -162,5 +170,4 @@ int64_t RRDBNetImpl::get_num_parameters() const {
     return total;
 }
 
-}  // namespace models
 }  // namespace facesr

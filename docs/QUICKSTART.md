@@ -9,11 +9,13 @@
 - 支持 GUI 应用和命令行工具
 - 完整的性能评估框架
 
+> 当前源码实现边界见 `docs/IMPLEMENTATION_STATUS.md`。本文只描述当前代码已经支持的启动路径。
+
 ### 核心特性
 
-- ✓ PSNR 29.26 dB (超过 Bicubic 基线 +0.79 dB)
-- ✓ GPU+CPU 混合加速 (推理速度 50-100ms)
-- ✓ 完整的性能评估 (PSNR, SSIM, LPIPS)
+- ✓ 当前复评 `generator_epoch190.pt`：PSNR 29.552 dB、SSIM 0.8432
+- ✓ CUDA/CPU 推理，默认有 CUDA 时自动使用 GPU
+- ✓ 当前可信评估指标：3000 张测试集 PSNR/SSIM；LPIPS 需重新完整评估后再引用
 - ✓ 现代化 GUI 应用
 
 ---
@@ -53,9 +55,9 @@ cmake --build . --config Release
 从 Releases 页面下载预训练模型，放到 `checkpoints/` 目录：
 ```
 checkpoints/
-  ├── generator_latest.pt      (推荐)
+  ├── generator_latest.pt
   ├── generator_best.pt
-  └── generator_epoch190.pt
+  └── generator_epoch190.pt   (当前 README 推荐优先尝试)
 ```
 
 ### 4. 快速推理
@@ -63,15 +65,22 @@ checkpoints/
 ```bash
 # 推理单张图像
 ./build/bin/Release/facesr_test.exe \
-    --model checkpoints/generator_latest.pt \
+    --model checkpoints/generator_epoch190.pt \
     --input input.jpg \
     --output output.png
 
 # 批量推理
 ./build/bin/Release/facesr_test.exe \
-    --model checkpoints/generator_latest.pt \
+    --model checkpoints/generator_epoch190.pt \
     --input input_folder/ \
     --output output_folder/
+
+# 强制 CPU 推理
+./build/bin/Release/facesr_test.exe \
+    --model checkpoints/generator_epoch190.pt \
+    --input input.jpg \
+    --output output.png \
+    --cpu
 ```
 
 ### 5. 启动 GUI
@@ -79,6 +88,8 @@ checkpoints/
 ```bash
 ./build/bin/Release/facesr_gui_app.exe
 ```
+
+GUI 适合演示默认结构模型。若模型训练时启用了 CBAM attention，请优先使用命令行并添加 `--attention`。
 
 ---
 
@@ -92,7 +103,7 @@ python scripts/evaluation/evaluate_model.py
 ```
 
 预期输出：
-- ✓ 生成 full_metrics_report.csv
+- ✓ 生成或更新评估汇总文件
 - ✓ 生成性能对比图表
 - ✓ 打印性能指标（PSNR ~29 dB）
 
@@ -103,9 +114,6 @@ python scripts/evaluation/evaluate_model.py
 ```
 FaceSR_CPP/
 ├── README.md               项目概览
-├── DOCS.md                 文档索引（本文件）
-├── QUICKSTART.md           快速开始
-├── EVALUATION.md           评估说明
 │
 ├── include/                C++ 头文件
 ├── src/                    C++ 源文件
@@ -122,9 +130,10 @@ FaceSR_CPP/
 │   └── utils/              工具脚本
 │
 ├── docs/                   技术文档
-│   ├── design/             架构和算法设计
-│   ├── api/                API 文档
-│   └── tutorial/           使用教程
+│   ├── QUICKSTART.md       快速开始
+│   ├── EVALUATION.md       评估说明
+│   ├── IMPLEMENTATION_STATUS.md 当前实现状态
+│   └── FACESR_LEARNING_TO_DEFENSE_GUIDE.md 学习到答辩指南
 │
 └── thesis/                 论文相关文件
     ├── figures/            论文图表
@@ -155,41 +164,47 @@ facesr_test.exe --model model.pt --input image.jpg --cpu
 
 ### Q4: 如何使用自己的数据进行训练？
 
-**A:** 参考 `docs/tutorial/TRAINING.md`
+**A:** 准备 `data/train/hr` 和 `data/val/hr` 目录，运行：
+
+```bash
+facesr_train --config config/train_config.ini
+```
 
 ### Q5: 模型性能不佳怎么办？
 
-**A:** 查看 `results/eval_reports/MODEL_SELECTION_GUIDE.md`
+**A:** 先确认使用的模型结构是否与推理参数一致，例如训练时启用了 CBAM，则推理也需要 `--attention`。再通过 `docs/EVALUATION.md` 中的评估脚本复查 PSNR/SSIM；LPIPS 需要和当前 checkpoint 同批次重新计算后再引用。
 
 ---
 
 ## 下一步
 
-- 详细的编译步骤：见 `docs/tutorial/SETUP.md`
-- 训练新模型：见 `docs/tutorial/TRAINING.md`
-- 性能分析：见 `results/eval_reports/FINAL_SUMMARY.md`
-- 毕设答辩：见 `results/eval_reports/THESIS_ASSESSMENT.md`
+- 当前实现状态：见 `docs/IMPLEMENTATION_STATUS.md`
+- 从学习到答辩：见 `docs/FACESR_LEARNING_TO_DEFENSE_GUIDE.md`
+- 评估方法：见 `docs/EVALUATION.md`
 
 ---
 
 ## 性能指标 (3000 张 CelebA 测试集)
 
-| 指标 | Latest | Best | Bicubic |
-|------|--------|------|---------|
-| PSNR | 29.26 dB | 9.12 dB | 28.46 dB |
-| SSIM | 0.8463 | 0.2530 | 0.8323 |
-| LPIPS | 0.2499 | 0.6265 | 0.3098 |
+当前 `results/eval_reports/checkpoint_comparison_summary.csv` 中可验证的 PSNR/SSIM 结果：
 
-**结论**: Latest 是推荐的模型，性能最优
+| Checkpoint | PSNR | SSIM |
+|------------|-----:|-----:|
+| Bicubic | 28.463390 | 0.819148 |
+| generator_best.pt | 29.441479 | 0.840618 |
+| generator_latest.pt | 29.258062 | 0.832859 |
+| generator_epoch190.pt | 29.552015 | 0.843166 |
+
+**说明**: 当前推理示例优先使用 `generator_epoch190.pt`。LPIPS、分层分析和可视化报告应重新运行 `docs/EVALUATION.md` 中的评估脚本后再用于论文或答辩。
 
 ---
 
 ## 获取帮助
 
-1. 查看项目文档：`DOCS.md`
-2. 查看答辩评估：`results/eval_reports/THESIS_ASSESSMENT.md`
-3. 查看评估结果：`results/eval_reports/FINAL_SUMMARY.md`
+1. 查看当前实现状态：`docs/IMPLEMENTATION_STATUS.md`
+2. 查看学习到答辩指南：`docs/FACESR_LEARNING_TO_DEFENSE_GUIDE.md`
+3. 查看评估方法：`docs/EVALUATION.md`
 
 ---
 
-**开始使用吧！** 🚀
+**开始使用**

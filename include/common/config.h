@@ -48,6 +48,9 @@ namespace constants {
     constexpr double DEFAULT_PIXEL_WEIGHT = 1.0;
     constexpr double DEFAULT_PERCEPTUAL_WEIGHT = 1.0;
     constexpr double DEFAULT_GAN_WEIGHT = 0.1;
+    constexpr double DEFAULT_FREQUENCY_WEIGHT = 0.0;
+    constexpr double DEFAULT_GRADIENT_WEIGHT = 0.0;
+    constexpr double DEFAULT_R1_WEIGHT = 0.0;
 
     // GAN标签值
     constexpr double REAL_LABEL_VALUE = 1.0;
@@ -72,9 +75,13 @@ namespace constants {
     constexpr int DEFAULT_SAVE_INTERVAL = 10;
 
     // GPU+CPU混合模式参数
-    constexpr int DEFAULT_PIPELINE_QUEUE_SIZE = 8;    // 流水线队列深度
-    constexpr int DEFAULT_CPU_PREPROCESS_THREADS = 2; // CPU预处理线程数
-    constexpr int DEFAULT_CPU_POSTPROCESS_THREADS = 2; // CPU后处理线程数
+    constexpr int DEFAULT_PIPELINE_QUEUE_SIZE = 8;
+    constexpr int DEFAULT_CPU_PREPROCESS_THREADS = 2;
+    constexpr int DEFAULT_CPU_POSTPROCESS_THREADS = 2;
+
+    // 网络配置默认值
+    constexpr bool DEFAULT_USE_ATTENTION = false;
+    constexpr bool DEFAULT_USE_SPECTRAL_NORM = false;
 
     // SSIM计算参数
     constexpr double SSIM_K1 = 0.01;

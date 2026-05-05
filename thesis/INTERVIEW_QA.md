@@ -2,6 +2,8 @@
 
 > 面试准备专用：70个常见问题及标准答案
 > 建议答题时间：每题3-5分钟
+>
+> 当前代码实现边界见 `../docs/IMPLEMENTATION_STATUS.md`。回答时不要把 Relativistic GAN、完整混合流水线、FP16、拖拽上传、梯度裁剪、学习率调度器描述为当前已实现功能；这些可以作为后续优化方向。
 
 ---
 
@@ -22,13 +24,13 @@
 
 这是一个基于深度学习的人脸超分辨率系统，使用C++和LibTorch实现。项目的核心目标是将64×64的低分辨率人脸图像放大到256×256的高分辨率图像，提升4倍分辨率。
 
-**技术架构**：采用RRDB（Residual-in-Residual Dense Block）作为生成器，结合GAN对抗训练。RRDB有23个块，总参数16.7M。判别器使用VGG-style网络，5层卷积。
+**技术架构**：采用RRDB（Residual-in-Residual Dense Block）作为生成器，结合GAN对抗训练。RRDB默认23个块，生成器约16.7M参数。判别器使用VGG-style多层卷积结构，包含5次下采样和全连接真假判别头。
 
-**训练策略**：三阶段渐进式训练。阶段A用L1+感知损失预训练50轮，阶段B引入小权重对抗损失训练100轮，阶段C用正常权重对抗损失精调40轮。总训练时间约10小时。
+**训练策略**：C++ `Trainer` 实现三阶段渐进式训练。阶段1只使用像素损失，阶段2加入VGG感知损失，阶段3加入GAN损失。阶段边界由 `config/train_config.ini` 的 `phase1_epochs` 和 `phase2_epochs` 控制。
 
-**性能表现**：在3000张CelebA测试集上，PSNR达到29.26 dB，比双三次插值提升0.8 dB；SSIM为0.8463，提升1.7%；LPIPS为0.2499，感知质量提升19%。
+**性能表现**：当前 `checkpoint_comparison_summary.csv` 的3000张CelebA复评结果中，`generator_epoch190.pt` 的 PSNR 为29.552 dB、SSIM 为0.8432，均高于 Bicubic 基线。LPIPS 需要以重新运行完整评估脚本后的新报告为准。
 
-**工程实现**：使用C++实现推理，速度比Python快2-3倍（30ms vs 80ms）。开发了Qt GUI界面，支持实时预览和批量处理。建立了完整的评估框架，包含分层分析和可视化。
+**工程实现**：使用C++/LibTorch实现模型定义、训练和推理，OpenCV负责图像处理，Qt GUI支持打开图像、加载模型、重建、保存和批量处理。Python脚本用于离线评估，包含PSNR、SSIM、LPIPS、分层分析和可视化报告。
 
 ### Q2: 什么是超分辨率？你的项目解决了什么问题？
 
@@ -58,7 +60,7 @@
 - EDSR（2017）：深层ResNet，用MSE损失，PSNR高但感知质量一般
 - ESRGAN（2018）：RRDB+GAN，PSNR和感知质量都好，本项目基于此
 
-**实验证明**：本项目的LPIPS为0.2499，比Bicubic的0.3098提升19%，说明GAN生成的图像更符合人眼感受。
+**实验说明**：GAN和感知损失通常更关注视觉真实感，但本项目答辩时不要混用旧 LPIPS 报告。若要引用 LPIPS，应重新运行 `docs/EVALUATION.md` 中的完整评估脚本，并使用同一次生成的指标。
 
 ### Q4: 解释一下RRDB的网络结构
 
@@ -105,9 +107,9 @@ RRDB是Residual-in-Residual Dense Block，三层嵌套结构：
 - 每轮时间：约3分钟
 
 **推理性能**：
-- GPU推理：30ms/张（RTX 3090）
-- CPU推理：300ms/张（Intel i9）
-- 批量推理：20ms/张（batch=16）
+- 支持 CUDA 时默认使用 GPU
+- 可通过 `--cpu` 强制 CPU 推理
+- 具体耗时与硬件、输入尺寸和模型结构有关，答辩前应以本机实测为准
 
 **内存占用**：
 - 模型加载：~200MB
@@ -119,10 +121,10 @@ RRDB是Residual-in-Residual Dense Block，三层嵌套结构：
 
 **三大原因**：
 
-**1. 性能优势**
-- 推理速度：C++ 30ms vs Python 80ms（快2-3倍）
-- 内存占用：C++ 200MB vs Python 500MB
-- 启动时间：C++即时启动 vs Python需要加载解释器
+**1. 工程部署优势**
+- 训练和推理主流程可在 C++/LibTorch 中完成
+- 便于与 OpenCV、Qt 和本地桌面程序集成
+- 不依赖 Python 解释器作为最终用户界面入口
 
 **2. 部署优势**
 - 独立可执行文件，无需Python环境
@@ -134,7 +136,7 @@ RRDB是Residual-in-Residual Dense Block，三层嵌套结构：
 - 易于集成到其他系统（编译为动态库）
 - 展示C++工程能力，面试加分
 
-**实现方式**：Python训练模型 → 导出TorchScript → C++加载推理。训练用Python（灵活），推理用C++（高效）。
+**实现方式**：当前项目主流程是 C++/LibTorch 训练和推理；推理器会优先尝试加载 TorchScript，失败后回退到 C++ `torch::load` 保存的 LibTorch 原生模型。
 
 ### Q7: LibTorch和PyTorch有什么区别？
 
@@ -145,7 +147,7 @@ RRDB是Residual-in-Residual Dense Block，三层嵌套结构：
 - LibTorch：直接使用C++后端
 
 **主要优势**：
-1. **无缝迁移**：Python训练的.pt模型可直接在C++中加载
+1. **模型兼容**：TorchScript `.pt` 和 C++ `torch::save` 保存的模型都可作为推理器加载路径
 2. **API一致**：Python的`model(x)`对应C++的`model->forward(x)`
 3. **动态图支持**：可以打印中间结果，单步调试
 4. **生态完整**：支持所有PyTorch操作和预训练模型
@@ -168,27 +170,24 @@ torch::Tensor output = model.forward({input}).toTensor();
 
 **三阶段渐进式训练**：
 
-**阶段A：预训练（50 epochs）**
-- 损失：L1 + 感知（无对抗）
-- 学习率：1e-4
-- 目标：学习基本图像内容和结构
+**阶段1：基础重建**
+- 损失：像素损失
+- 目标：学习低分辨率到高分辨率的基本映射
 
-**阶段B：引入对抗（100 epochs）**
-- 损失：L1 + 感知 + 0.001×对抗
-- 学习率：5e-5
-- 目标：逐步学习细节，避免训练不稳定
+**阶段2：引入感知损失**
+- 损失：像素损失 + VGG感知损失
+- 目标：增强纹理和结构表达
 
-**阶段C：精细调整（40 epochs）**
-- 损失：L1 + 感知 + 0.005×对抗
-- 学习率：1e-5
-- 目标：优化细节，提升感知质量
+**阶段3：引入对抗损失**
+- 损失：像素损失 + VGG感知损失 + GAN损失
+- 目标：提升高频细节和视觉真实感
 
 **为什么分阶段**：
 1. **避免训练初期GAN不稳定**：生成器初期输出噪声，判别器轻易识破，梯度消失
 2. **先学内容后学细节**：分离两个目标，收敛更快
-3. **逐步增加对抗权重**：避免对抗损失过大产生伪影
+3. **逐步引入对抗目标**：避免训练早期判别器过强导致生成器难以学习
 
-**实验验证**：单阶段训练PSNR只有27.5 dB，三阶段达到29.26 dB。
+**实现依据**：源码中通过 `phase1_epochs` 和 `phase2_epochs` 控制阶段，学习率当前使用配置中的固定 `lr_g` 和 `lr_d`。
 
 ### Q9: 损失函数包括哪些？各自的作用是什么？
 
@@ -231,26 +230,23 @@ Total = L1 + Perceptual + 0.005 × Adversarial
 
 **四个关键措施**：
 
-**1. Relativistic GAN**
-- 传统GAN：判断"真/假"
-- Relativistic GAN：判断"比另一张图更真/更假"
-- 优势：提供更稳定的梯度
+**1. 阶段式训练**
+- 先训练基础重建，再引入感知和对抗目标
+- 避免生成器初期太弱时直接进入强对抗训练
 
-**2. 梯度惩罚（Gradient Penalty）**
+**2. 可选 R1 正则化**
 ```cpp
-// 惩罚判别器梯度偏离1
-float gp_loss = (grad_norm - 1.0)²
-d_loss += 10.0 × gp_loss
+// r1_weight > 0 且进入 GAN 阶段时，对真实图像梯度加惩罚
 ```
-- 作用：防止判别器梯度爆炸或消失
+- 作用：约束判别器对真实图像的梯度
 
-**3. 学习率调度**
-- 前50轮：1e-4（快速收敛）
-- 50-150轮：5e-5（稳定训练）
-- 150-190轮：1e-5（精细调整）
+**3. GAN类型可配置**
+- 默认 vanilla
+- 可选 lsgan、wgan、wgan-gp、hinge
+- 注意：当前源码没有实现 Relativistic GAN；WGAN-GP 枚举存在，但 GP 项未实现
 
-**4. 三阶段训练**
-- 逐步引入对抗损失，避免初期不稳定
+**4. 损失权重可配置**
+- `pixel_weight`、`perceptual_weight`、`gan_weight` 控制各损失贡献
 
 **监控指标**：
 - 判别器损失应在0.3-0.7之间波动
@@ -292,7 +288,7 @@ PSNR = 10 × log10(255² / MSE)
 ```
 - 范围：20-40 dB，越大越好
 - 特点：像素级相似度，计算简单但不一定符合人眼
-- 本项目：29.26 dB
+- 本项目当前复评：Epoch190 为 29.552 dB
 
 **SSIM（结构相似度）**
 ```
@@ -300,7 +296,7 @@ SSIM = [亮度] × [对比度] × [结构]
 ```
 - 范围：0-1，越大越好
 - 特点：考虑亮度、对比度、结构，更符合人眼
-- 本项目：0.8463
+- 本项目当前复评：Epoch190 为 0.8432
 
 **LPIPS（感知相似度）**
 ```
@@ -308,7 +304,7 @@ LPIPS = ||VGG(img1) - VGG(img2)||²
 ```
 - 范围：0-1，越小越好
 - 特点：用深度网络提取特征，最符合人眼感受
-- 本项目：0.2499
+- 本项目：需要重新运行完整评估后引用
 
 **三者关系**：PSNR关注像素，SSIM关注结构，LPIPS关注感知。GAN方法在LPIPS上优势明显。
 
@@ -316,38 +312,26 @@ LPIPS = ||VGG(img1) - VGG(img2)||²
 
 **标准答案**：
 
-**训练时**：固定64×64输入
-- 从256×256 HR图像随机裁剪64×64
-- 双三次下采样到16×16作为LR
-- 数据增强：随机翻转、颜色抖动
+**训练时**：
+- HR 图像 resize 到 `hr_size`，默认 256×256
+- LR 图像若目录为空，则由 HR 通过 bicubic 在线下采样到 `lr_size`，默认 64×64
+- 当前增强只实现随机水平翻转和 90° 倍数旋转
+- 当前没有实现随机裁剪、颜色抖动或垂直翻转
 
-**推理时**：三种策略
+**推理时**：当前 `Inference::process` 直接把整张 OpenCV Mat 转成 Tensor 后送入生成器。生成器是全卷积结构，通常可处理不同空间尺寸输入，但代码没有实现分块推理、重叠融合或自动 resize 策略。
 
-**1. 小图像（<64×64）**
+**已实现流程**
 ```cpp
-// 先上采样到64×64
-cv::resize(img, img, cv::Size(64, 64), cv::INTER_CUBIC);
-// 然后超分辨率到256×256
+auto input_tensor = utils::mat_to_tensor(input).to(device_);
+torch::NoGradGuard no_grad;
+auto output = generator_->forward(input_tensor).clamp(0.0, 1.0);
+return utils::tensor_to_mat(output.cpu());
 ```
 
-**2. 大图像（>64×64）**
+**未实现但可扩展**
 ```cpp
-// 分块处理，每块64×64，重叠8像素
-for (int i = 0; i < h; i += 56) {
-    for (int j = 0; j < w; j += 56) {
-        patch = img(Rect(j, i, 64, 64));
-        sr_patch = model(patch);
-        // 拼接时处理重叠区域
-    }
-}
-```
-
-**3. 非正方形图像**
-```cpp
-// Padding到正方形
-int max_size = max(h, w);
-cv::copyMakeBorder(img, img, ...);
-// 处理后裁剪回原始比例
+// 大图可后续加入 tile + overlap + blending，降低显存压力
+// 小图可后续加入最小尺寸检查和 resize 策略
 ```
 
 ### Q14: 你的模型在哪些情况下效果不好？
@@ -372,15 +356,16 @@ cv::copyMakeBorder(img, img, ...);
 - 解决：增加多角度训练数据
 
 **失败率统计**：
-- 测试集3000张，失败71张
-- 失败率：2.37%
-- 可接受范围：<5%
+- 失败率需要随当前 checkpoint 重新运行评估脚本统计
+- 不要直接引用旧报告中的失败率，除非指标文件和 checkpoint 完全对应
 
-### Q15: 如何实现GPU+CPU混合加速？
+### Q15: 当前如何使用CPU和GPU？混合流水线实现了吗？
 
 **标准答案**：
 
-**流水线架构**：
+当前代码已经实现 CPU/CUDA 设备选择：CPU 负责图像读取、OpenCV 预处理、后处理和保存，GPU 负责 LibTorch 神经网络计算。`include/inference.h` 预留了 Hybrid 队列和流水线接口，但 `src/inference.cpp` 的文件夹批处理当前仍是顺序逐张处理。
+
+**预留扩展方向：三阶段流水线架构**：
 
 ```
 [CPU线程1] 读取图像 → 解码 → 预处理 → 队列
@@ -408,9 +393,9 @@ class DataLoader {
 ```
 
 **2. 批量处理**
-- 单张推理：30ms
-- 批量推理（batch=16）：20ms/张
-- 加速比：1.5倍
+- 当前实现：文件夹内顺序逐张调用 `process_file`
+- 后续方向：将多图预处理、GPU推理和保存解耦成流水线
+- 具体速度需以本机实测为准
 
 **3. 内存管理**
 ```cpp
@@ -421,10 +406,9 @@ class DataLoader {
 }  // 自动释放GPU内存
 ```
 
-**性能提升**：
-- 无流水线：100ms/张
-- 有流水线：30ms/张
-- 加速比：3.3倍
+**预期收益**：
+- 流水线实现后可减少 GPU 等待 IO 的时间
+- 实际加速比需完成实现后重新测试
 
 ### Q16: 分层评估是如何设计的？
 
@@ -510,13 +494,19 @@ edge_density = np.mean(np.abs(edges))
 - 密集块之间用残差连接
 - 兼具两者优势
 
-### Q19: 如何从Python模型迁移到C++？
+### Q19: 如何处理 Python 模型与 C++ 推理的兼容？
 
 **标准答案**：
 
-**三步流程**：
+当前项目主流程是 C++/LibTorch 训练并保存模型，推理器会先尝试加载 TorchScript，失败后再按当前 C++ RRDBNet 结构执行 `torch::load`。因此 Python 迁移不是必需路径，而是一个兼容扩展路径。
 
-**步骤1：导出TorchScript**
+**路径1：当前 C++ 原生权重**
+```cpp
+torch::save(generator_, "generator_latest.pt");
+torch::load(generator_, "generator_latest.pt");
+```
+
+**路径2：Python 导出 TorchScript**
 ```python
 model.eval()
 example = torch.randn(1, 3, 64, 64)
@@ -524,15 +514,18 @@ traced = torch.jit.trace(model, example)
 traced.save('generator.pt')
 ```
 
-**步骤2：C++加载**
+**C++加载顺序**
 ```cpp
-torch::jit::script::Module model;
-model = torch::jit::load("generator.pt");
-model.eval();
-model.to(torch::kCUDA);
+// 先 torch::jit::load
+// 失败后构造 RRDBNet，再 torch::load(generator_, path)
 ```
 
-**步骤3：验证一致性**
+**注意点**
+- 普通 Python `state_dict` 不能直接当作完整模型加载。
+- LibTorch、CUDA、网络结构和 attention 开关必须一致。
+- 如果训练时启用 CBAM，命令行推理要加 `--attention`。
+
+**验证一致性**
 ```python
 # Python输出
 py_out = model(input).numpy()
@@ -552,7 +545,7 @@ assert diff < 1e-5  # 确保一致
 
 **标准答案**：
 
-**五个技巧**：
+**当前已实现和可扩展技巧**：
 
 **1. 禁用梯度计算**
 ```cpp
@@ -567,21 +560,21 @@ torch::NoGradGuard no_grad;  // 节省50%显存
 }  // 离开作用域自动释放
 ```
 
-**3. 使用半精度（FP16）**
+**3. 使用半精度（FP16，当前未实现）**
 ```cpp
 model.to(torch::kHalf);  // 显存减半
 ```
 
-**4. 动态调整batch size**
+**4. 动态调整batch size（当前未实现自动重试）**
 ```cpp
 try {
     output = model(input);
 } catch (c10::Error& e) {
-    batch_size /= 2;  // OOM时减小
+    batch_size /= 2;  // 后续可实现：OOM后减小batch再重试
 }
 ```
 
-**5. 梯度累积（训练时）**
+**5. 梯度累积（当前未实现）**
 ```cpp
 // 每4个batch更新一次
 if (step % 4 == 0) {
@@ -594,30 +587,20 @@ if (step % 4 == 0) {
 
 **标准答案**：
 
-**本项目使用的增强**：
+**当前代码使用的增强**：
 
-**1. 随机裁剪**
-```python
-crop = random_crop(img, 64, 64)
-```
-
-**2. 随机翻转**
+**1. 水平翻转**
 ```python
 if random() > 0.5:
     crop = flip_horizontal(crop)
-if random() > 0.5:
-    crop = flip_vertical(crop)
 ```
 
-**3. 颜色抖动**
-```python
-crop += np.random.randn(*crop.shape) * 0.01
-```
-
-**4. 旋转（90度倍数）**
+**2. 90度倍数旋转**
 ```python
 crop = rotate(crop, random.choice([0, 90, 180, 270]))
 ```
+
+训练数据会先 resize 到配置中的 HR/LR 尺寸；当前代码没有实现随机裁剪、垂直翻转或颜色抖动。
 
 **为什么需要**：
 1. **增加数据多样性**：3万张→实际相当于30万张
@@ -643,66 +626,39 @@ crop = rotate(crop, random.choice([0, 90, 180, 270]))
 - 目标：PSNR > 29 dB
 
 **3. 可视化**
-- 每10轮保存生成图像
+- 默认每 `val_interval` 轮验证时保存第一张 LR/SR/HR 对比图
 - 对比LR、SR、HR
 - 检查是否有伪影
 
 **4. 学习率**
-- 记录当前学习率
-- 确保按计划衰减
+- 记录配置中的固定 `lr_g` / `lr_d`
+- 当前训练循环没有实现学习率调度器
 
 **警告信号**：
 - 判别器损失接近0：判别器过强
 - 生成器损失不下降：学习率太小或陷入局部最优
 - 生成图像有伪影：对抗损失权重太大
 
-### Q23: 什么是Relativistic GAN？
+### Q23: 当前项目使用 Relativistic GAN 吗？
 
 **标准答案**：
 
-**传统GAN**：判断"真/假"
-```
-D(x) = sigmoid(C(x))  # C是判别器网络
-Loss_D = -log(D(real)) - log(1 - D(fake))
-```
+当前源码没有实现 Relativistic GAN。`GANLoss` 支持 vanilla、lsgan、wgan、wgan-gp、hinge 等类型，默认配置是 vanilla，sharper 配置可使用 hinge。
 
-**Relativistic GAN**：判断"比另一张图更真"
-```
-D(x_real, x_fake) = sigmoid(C(x_real) - C(x_fake))
-Loss_D = -log(D(real, fake))
-```
-
-**优势**：
-1. **更稳定的梯度**：不会出现判别器过强导致梯度消失
-2. **更好的收敛**：生成器和判别器更平衡
-3. **更高的质量**：生成图像更逼真
-
-**实验对比**：
-- 传统GAN：PSNR 28.5 dB，训练不稳定
-- Relativistic GAN：PSNR 29.26 dB，训练稳定
+答辩时可以说明：项目保留了多种 GAN loss 的枚举和配置能力，但当前代码基线不是 Relativistic GAN。如果要增强训练稳定性，可以后续实现 relativistic average GAN 或更完整的 WGAN-GP。
 
 ### Q24: 如何选择学习率？
 
 **标准答案**：
 
-**本项目学习率调度**：
+**当前代码中的学习率设置**：
 
-**阶段A（0-50轮）**：1e-4
-- 原因：初期需要快速收敛
-- 只有L1+感知损失，优化相对简单
-
-**阶段B（50-150轮）**：5e-5
-- 原因：引入对抗损失，需要更稳定
-- 学习率减半，避免震荡
-
-**阶段C（150-190轮）**：1e-5
-- 原因：精细调整，需要小步长
-- 学习率再减半，优化细节
+当前源码创建 Adam 优化器时直接使用配置文件中的 `lr_g` 和 `lr_d`，没有实现学习率调度器。`config.h` 中有调度器枚举和默认参数，但训练循环没有实际调用 scheduler。
 
 **选择原则**：
 1. **太大**：训练不稳定，损失震荡
 2. **太小**：收敛太慢，陷入局部最优
-3. **动态调整**：根据损失曲线调整
+3. **可扩展方向**：后续可加入 cosine、step 或 multistep 调度
 
 **实验方法**：
 - 从1e-3开始尝试
@@ -713,29 +669,28 @@ Loss_D = -log(D(real, fake))
 
 **标准答案**：
 
-**本项目选择**：batch_size = 16
+**本项目默认选择**：`config/train_config.ini` 中 `batch_size = 12`。部分 finetune 配置使用 `batch_size = 32`，需要根据显存调整。
 
 **考虑因素**：
 
 **1. 显存限制**
-- RTX 3090（24GB）：最大batch=32
-- RTX 3080（10GB）：最大batch=16
-- 本项目选16，兼容性好
+- batch 越大，显存占用越高
+- 当前代码不会 OOM 后自动缩小 batch，需要手动改配置
+- 答辩时应说明 batch size 是配置项，不是写死在代码里
 
 **2. 训练稳定性**
 - 太小（<8）：梯度噪声大，不稳定
 - 太大（>32）：梯度平滑，可能陷入局部最优
-- 16是平衡点
+- 默认 12 是显存、速度和稳定性的折中
 
 **3. 训练速度**
-- batch=1：100ms/batch
-- batch=16：120ms/batch（7.5ms/张）
-- 加速比：13倍
+- 具体速度和 GPU、图像尺寸、num_workers 有关
+- 需要在本机重新计时后再引用
 
 **4. 泛化能力**
 - 小batch：泛化能力强（噪声起到正则化作用）
 - 大batch：泛化能力弱
-- 16适中
+- 过大或过小都需要通过验证集指标判断
 
 ### Q26: 如何保存和加载checkpoint？
 
@@ -743,42 +698,58 @@ Loss_D = -log(D(real, fake))
 
 **保存checkpoint**：
 ```cpp
-void Trainer::save_checkpoint(int epoch) {
-    torch::save(generator, "checkpoints/gen_" + std::to_string(epoch) + ".pt");
-    torch::save(discriminator, "checkpoints/disc_" + std::to_string(epoch) + ".pt");
-    torch::save(g_optimizer, "checkpoints/g_opt_" + std::to_string(epoch) + ".pt");
-    torch::save(d_optimizer, "checkpoints/d_opt_" + std::to_string(epoch) + ".pt");
+void Trainer::save_checkpoint(int epoch, const std::string& suffix) {
+    std::string gen_path = checkpoint_dir + "/generator";
+    std::string disc_path = checkpoint_dir + "/discriminator";
 
-    // 保存元信息
-    std::ofstream meta("checkpoints/meta_" + std::to_string(epoch) + ".txt");
-    meta << "epoch: " << epoch << "\n";
-    meta << "psnr: " << current_psnr << "\n";
-    meta << "ssim: " << current_ssim << "\n";
+    if (suffix.empty()) {
+        gen_path += "_epoch" + std::to_string(epoch) + ".pt";
+        disc_path += "_epoch" + std::to_string(epoch) + ".pt";
+    } else {
+        gen_path += "_" + suffix + ".pt";
+        disc_path += "_" + suffix + ".pt";
+    }
+
+    torch::save(generator_, gen_path);
+    torch::save(discriminator_, disc_path);
+    torch::save(generator_, checkpoint_dir + "/generator_latest.pt");
+    torch::save(discriminator_, checkpoint_dir + "/discriminator_latest.pt");
 }
 ```
 
 **加载checkpoint**：
 ```cpp
 void Trainer::load_checkpoint(const std::string& path) {
-    torch::load(generator, path + "/gen.pt");
-    torch::load(discriminator, path + "/disc.pt");
-    torch::load(g_optimizer, path + "/g_opt.pt");
-    torch::load(d_optimizer, path + "/d_opt.pt");
+    // path 可以是目录，也可以是具体 generator_*.pt 文件
+    torch::load(generator_, gen_path);
+    if (fs::exists(disc_path)) {
+        torch::load(discriminator_, disc_path);
+    }
 }
 ```
 
+**训练状态**：
+- `train_state.bin` 保存 epoch、best_psnr、global_step
+- `optimizer_g_state.pt` / `optimizer_d_state.pt` 保存优化器状态
+
 **保存策略**：
 - 每10轮保存一次
-- 保留最近5个checkpoint
 - 单独保存best checkpoint（PSNR最高）
+- 同时保存latest checkpoint
+- 当前代码没有实现“只保留最近5个checkpoint”的清理逻辑
 
 ### Q27: 如何处理训练中的异常情况？
 
 **标准答案**：
 
-**常见异常**：
+**当前已实现**：
+- Ctrl+C / 控制台关闭时安全保存 interrupted checkpoint 和训练状态
+- checkpoint 加载失败时记录日志并抛出异常
+- 推理文件夹处理时单张失败会记录错误并继续处理后续文件
 
-**1. NaN/Inf**
+**后续可扩展的异常处理**：
+
+**1. NaN/Inf（当前未实现自动恢复）**
 ```cpp
 if (std::isnan(loss) || std::isinf(loss)) {
     std::cout << "NaN/Inf detected, loading last checkpoint\n";
@@ -787,7 +758,7 @@ if (std::isnan(loss) || std::isinf(loss)) {
 }
 ```
 
-**2. 显存不足（OOM）**
+**2. 显存不足（当前未实现自动缩小 batch）**
 ```cpp
 try {
     output = model(input);
@@ -797,7 +768,7 @@ try {
 }
 ```
 
-**3. 损失爆炸**
+**3. 损失爆炸（当前未实现梯度裁剪）**
 ```cpp
 if (loss > 100.0) {
     std::cout << "Loss explosion, clipping gradients\n";
@@ -805,7 +776,7 @@ if (loss > 100.0) {
 }
 ```
 
-**4. 判别器过强**
+**4. 判别器过强（当前未实现自动跳过判别器更新）**
 ```cpp
 if (d_loss < 0.1) {
     // 跳过判别器更新，只更新生成器
@@ -820,14 +791,13 @@ if (d_loss < 0.1) {
 **评估方法**：
 
 **1. 训练集 vs 测试集**
-- 训练集PSNR：29.5 dB
-- 测试集PSNR：29.26 dB
-- 差距：0.24 dB（<0.5 dB，泛化良好）
+- 当前仓库主要保留测试集复评结果
+- 若要回答泛化能力，应同时跑训练集、验证集和测试集指标
+- 不要在没有对应 CSV 的情况下声称训练集/测试集差距
 
 **2. 不同数据集**
-- CelebA测试集：29.26 dB
-- FFHQ测试集：28.8 dB（未见过的数据）
-- 差距：0.46 dB（可接受）
+- 当前公开文档主要是 CelebA 测试集
+- FFHQ 等跨数据集结果需要单独评估后再引用
 
 **3. 分层评估**
 - 不同亮度：性能均衡
@@ -835,9 +805,8 @@ if (d_loss < 0.1) {
 - 说明：对各种情况都有效
 
 **4. 失败案例分析**
-- 失败率：2.37%（71/3000）
-- 主要原因：极度模糊、遮挡、非正面
-- 可接受范围：<5%
+- 失败率、失败类型需要和当前 checkpoint 的完整评估报告对应
+- 旧报告中的失败率只能作为历史参考
 
 ### Q29: 如何进行消融实验（Ablation Study）？
 
@@ -846,26 +815,26 @@ if (d_loss < 0.1) {
 **消融实验设计**：
 
 **实验1：损失函数**
-- 仅L1：PSNR 28.5 dB，图像模糊
-- L1+感知：PSNR 29.0 dB，纹理自然
-- L1+感知+对抗：PSNR 29.26 dB，细节逼真
+- 仅L1：需要单独训练后填写
+- L1+感知：需要单独训练后填写
+- L1+感知+对抗：当前三阶段训练最终会进入该组合
 
 **实验2：网络结构**
-- ResNet（无密集连接）：PSNR 28.7 dB
-- DenseNet（无残差）：PSNR 28.9 dB
-- RRDB（两者结合）：PSNR 29.26 dB
+- ResNet（无密集连接）：需要单独实现并训练
+- DenseNet（无残差）：需要单独实现并训练
+- RRDB（两者结合）：当前默认生成器结构
 
 **实验3：训练策略**
-- 单阶段：PSNR 27.5 dB，训练不稳定
-- 两阶段：PSNR 28.8 dB
-- 三阶段：PSNR 29.26 dB
+- 单阶段：可作为对照实验
+- 两阶段：可作为对照实验
+- 三阶段：当前代码已实现，阶段边界由配置控制
 
 **实验4：RRDB块数量**
-- 10块：PSNR 28.3 dB，参数7M
-- 23块：PSNR 29.26 dB，参数16.7M
-- 40块：PSNR 29.3 dB，参数30M（提升不明显）
+- 10块：需要改配置/代码并重新训练
+- 23块：当前默认结构，生成器约16.7M参数
+- 40块：需要单独实验验证收益和显存成本
 
-**结论**：每个设计选择都有实验支撑。
+**结论**：当前可以解释为什么这样设计；若论文中要写“消融实验证明”，必须补齐对应实验结果。
 
 ### Q30: 项目还有哪些可以改进的地方？
 
@@ -874,7 +843,7 @@ if (d_loss < 0.1) {
 **五个改进方向**：
 
 **1. 模型轻量化**
-- 当前：16.7M参数，30ms推理
+- 当前：生成器约16.7M参数，推理速度需本机实测
 - 目标：5M参数，10ms推理
 - 方法：知识蒸馏、模型剪枝、量化
 
@@ -889,12 +858,12 @@ if (d_loss < 0.1) {
 - 方法：利用时间连续性，3D卷积
 
 **4. 支持实时处理**
-- 当前：30ms/张（33 FPS）
+- 当前：支持单图和文件夹推理，速度需本机实测
 - 目标：10ms/张（100 FPS）
 - 方法：模型压缩、TensorRT优化
 
 **5. 增强鲁棒性**
-- 当前：失败率2.37%
+- 当前：失败率需用当前 checkpoint 的同批次逐图指标重新统计
 - 目标：失败率<1%
 - 方法：增加训练数据多样性，对抗训练
 
@@ -906,56 +875,37 @@ if (d_loss < 0.1) {
 
 **标准答案**：
 
-**流水线架构**：
+**当前训练数据加载实现**：
 
-**组件1：数据读取器**
+当前代码使用 `FaceSRDataset` 封装 HR/LR 图像读取、resize、bicubic 在线生成 LR、水平翻转和 90° 旋转增强，再通过 LibTorch `make_data_loader` 创建 DataLoader。
+
+**组件1：Dataset**
 ```cpp
-class ImageReader {
-    std::queue<std::string> file_queue;
-    std::vector<std::thread> workers;
-
-    void worker() {
-        while (!file_queue.empty()) {
-            auto path = file_queue.pop();
-            auto img = cv::imread(path);
-            buffer.push(img);
-        }
-    }
-};
+auto dataset = FaceSRDataset(train_hr_dir, train_lr_dir,
+                             hr_size, lr_size, true)
+    .map(torch::data::transforms::Stack<>());
 ```
 
-**组件2：预处理器**
+**组件2：单样本处理**
 ```cpp
-class Preprocessor {
-    cv::Mat preprocess(cv::Mat img) {
-        // 1. 缩放到64×64
-        cv::resize(img, img, cv::Size(64, 64));
-        // 2. 归一化到[0,1]
-        img.convertTo(img, CV_32F, 1.0/255.0);
-        // 3. 转换为Tensor
-        return mat_to_tensor(img);
-    }
-};
+cv::resize(hr_img, hr_img, cv::Size(hr_size_, hr_size_));
+cv::resize(hr_img, lr_img, cv::Size(lr_size_, lr_size_));
+auto [hr_aug, lr_aug] = applyAugmentation(hr_img, lr_img);
+return {matToTensor(lr_aug), matToTensor(hr_aug)};
 ```
 
-**组件3：批量组装器**
+**组件3：DataLoader**
 ```cpp
-class BatchAssembler {
-    std::vector<torch::Tensor> batch;
-
-    torch::Tensor get_batch(int size) {
-        while (batch.size() < size) {
-            batch.push_back(buffer.pop());
-        }
-        return torch::stack(batch);
-    }
-};
+auto data_loader = torch::data::make_data_loader(
+    std::move(dataset),
+    DataLoaderOptions().batch_size(batch_size).workers(num_workers)
+);
 ```
 
 **性能优化**：
-- 多线程并行读取（8线程）
-- 预取缓冲（buffer size=64）
-- 异步处理（CPU和GPU并行）
+- `num_workers` 来自配置文件，默认 4
+- 当前没有手写预取缓冲或 GPU/CPU 三阶段训练流水线
+- 文件夹推理也仍是顺序逐张处理
 
 ### Q32: 如何设计配置管理系统？
 
@@ -964,30 +914,35 @@ class BatchAssembler {
 **INI文件格式**：
 ```ini
 [model]
-num_rrdb_blocks = 23
-num_channels = 64
+use_attention = false
+use_spectral_norm = false
 
 [training]
-batch_size = 16
-learning_rate = 0.0001
+batch_size = 12
+num_workers = 4
+lr_g = 0.0002
+lr_d = 0.0002
+phase1_epochs = 50
+phase2_epochs = 150
 ```
 
-**配置类设计**：
+**当前配置类设计**：
 ```cpp
-class Config {
-public:
-    void load(const std::string& path);
+struct TrainConfig {
+    bool loadFromFile(const std::string& filepath);
 
-    // 模型配置
-    int num_rrdb_blocks;
-    int num_channels;
-
-    // 训练配置
+    std::string train_hr_dir;
+    std::string train_lr_dir;
+    std::string val_hr_dir;
+    std::string val_lr_dir;
     int batch_size;
-    float learning_rate;
-
-private:
-    void parse_section(const std::string& section);
+    int num_workers;
+    double lr_g;
+    double lr_d;
+    int phase1_epochs;
+    int phase2_epochs;
+    bool use_attention;
+    bool use_spectral_norm; // 当前为预留开关
 };
 ```
 
@@ -1029,7 +984,7 @@ public:
 **记录内容**：
 - 训练进度：epoch、batch、损失
 - 评估结果：PSNR、SSIM
-- 异常情况：NaN、OOM
+- 异常情况：模型加载失败、图像读取失败、checkpoint加载失败
 - 时间统计：每轮耗时
 
 ### Q34: 如何设计模型版本管理？
@@ -1039,23 +994,18 @@ public:
 **命名规范**：
 ```
 checkpoints/
-├── epoch_050_psnr_28.5.pt  # 阶段A结束
-├── epoch_150_psnr_29.0.pt  # 阶段B结束
-├── epoch_190_psnr_29.26.pt # 阶段C结束（latest）
-└── best_psnr_29.26.pt      # 最佳模型
+├── generator_epoch49.pt
+├── discriminator_epoch49.pt
+├── generator_latest.pt
+├── discriminator_latest.pt
+├── generator_best.pt
+├── discriminator_best.pt
+├── train_state.bin
+├── optimizer_g_state.pt
+└── optimizer_d_state.pt
 ```
 
-**元信息记录**：
-```json
-{
-    "epoch": 190,
-    "psnr": 29.26,
-    "ssim": 0.8463,
-    "lpips": 0.2499,
-    "training_time": "10h 23m",
-    "config": "config/finetune_phase_c.ini"
-}
-```
+**元信息记录**：当前 `train_state.bin` 记录 epoch、best_psnr 和 global_step；优化器状态单独保存在 `optimizer_g_state.pt` 和 `optimizer_d_state.pt`。代码没有生成 JSON 元信息文件。
 
 **版本选择策略**：
 - latest：最新训练的模型
@@ -1076,17 +1026,17 @@ checkpoints/
 │  (64×64)    │   (256×256)       │
 │             │                   │
 ├─────────────┴───────────────────┤
-│  PSNR: 29.26 dB  SSIM: 0.8463  │
-│  处理时间: 30ms                 │
+│  状态: 处理完成                │
+│  处理时间: 本机实测             │
 └─────────────────────────────────┘
 ```
 
 **关键功能**：
-1. **拖拽上传**：支持拖拽图像文件
+1. **文件选择**：通过文件对话框打开图像
 2. **实时预览**：显示处理前后对比
 3. **批量处理**：选择文件夹批量处理
-4. **进度显示**：显示处理进度和剩余时间
-5. **参数调整**：调整模型参数（如放大倍数）
+4. **进度显示**：单图处理显示进度，批处理显示忙碌进度条
+5. **模型加载**：当前界面没有 attention、scale 等结构参数设置面板
 
 **技术实现**：
 - Qt框架：跨平台GUI
@@ -1129,7 +1079,7 @@ class Evaluator:
 
 **输出文件**：
 - `full_metrics_report.csv`：完整数据
-- `MODEL_SELECTION_GUIDE.md`：分析报告
+- `checkpoint_comparison_summary.csv`：当前 PSNR/SSIM checkpoint 汇总
 - `checkpoint_comparison_bar.png`：对比图
 
 ### Q37: 如何设计错误处理机制？
@@ -1167,12 +1117,8 @@ try {
 try {
     output = model.forward({input}).toTensor();
 } catch (const c10::Error& e) {
-    if (is_oom_error(e)) {
-        // 减小batch size重试
-        batch_size /= 2;
-        return retry_with_smaller_batch();
-    }
-    throw;
+    LOG_ERROR("Inference failed: ", e.what());
+    return {};
 }
 ```
 
@@ -1345,29 +1291,30 @@ TEST(PerformanceTest, InferenceSpeed) {
     auto output = model.forward(input);
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-    EXPECT_LT(duration.count(), 50);  // <50ms
+    std::cout << "inference ms: " << duration.count() << std::endl;
+    // 阈值应按答辩机器和输入尺寸单独设定
 }
 ```
 
 ### Q42-Q50: 其他设计问题（简答）
 
 **Q42: 如何设计命令行接口？**
-使用argparse库，支持`--input`, `--output`, `--model`, `--gpu`等参数。提供`--help`显示使用说明。
+当前 C++ 入口手写解析 `argv`，推理支持 `--model`、`--input`、`--output`、`--scale`、`--cpu`、`--attention`，训练支持 `--config`、`--train-hr`、`--train-lr`、`--val-hr`、`--batch-size`、`--epochs`、`--lr`、`--resume`、`--cpu`。没有 `--gpu` 或 `--device` 参数。
 
 **Q43: 如何设计模型导出功能？**
-使用TorchScript导出：`torch.jit.trace(model, example).save('model.pt')`。支持ONNX格式：`torch.onnx.export(model, example, 'model.onnx')`。
+当前训练器直接用 C++ `torch::save` 保存 LibTorch 权重；推理器兼容 TorchScript 加载。ONNX 导出未实现，可作为后续扩展。
 
 **Q44: 如何设计性能分析工具？**
-使用`torch.profiler`分析每层耗时。使用`nvidia-smi`监控GPU使用率。记录推理时间、内存占用。
+当前代码没有内置 profiler。可在外部使用 `nvidia-smi`、Nsight、Visual Studio Profiler 或手动计时记录推理时间和显存占用。
 
 **Q45: 如何设计数据集管理？**
-��用`torch.utils.data.Dataset`封装。支持lazy loading（按需加载）。使用`DataLoader`实现批量加载和shuffle。
+当前用 C++ `FaceSRDataset` 继承 `torch::data::Dataset`，按需读取图像，使用 LibTorch DataLoader 批量加载。不是 Python `torch.utils.data.Dataset`。
 
 **Q46: 如何设计模型压缩方案？**
-三种方法：(1) 剪枝（Pruning）去除不重要的连接；(2) 量化（Quantization）FP32→INT8；(3) 知识蒸馏（Distillation）大模型→小模型。
+剪枝、量化和知识蒸馏都属于后续优化方向；当前源码未实现模型压缩。
 
 **Q47: 如何设计分布式训练？**
-使用`torch.nn.DataParallel`多GPU训练。使用`torch.distributed`多机训练。梯度累积模拟大batch size。
+C++ 当前训练器是单进程单设备训练。多 GPU、分布式训练和梯度累积均未实现，可作为后续扩展。
 
 **Q48: 如何设计模型可解释性？**
 可视化特征图（每层输出）。使用Grad-CAM显示关注区域。对比不同层的激活值。
@@ -1439,22 +1386,21 @@ TEST(PerformanceTest, InferenceSpeed) {
 **标准答案**：
 
 **创新点**：
-1. **渐进式权重调整**：对抗损失从0→0.001→0.005
-2. **学习率同步衰减**：1e-4→5e-5→1e-5
-3. **阶段性目标明确**：内容→细节→优化
+1. **渐进式目标引入**：像素损失 → 像素+感知 → 像素+感知+GAN
+2. **配置化阶段边界**：`phase1_epochs` 和 `phase2_epochs` 控制切换时机
+3. **阶段性目标明确**：内容重建 → 纹理结构 → 视觉真实感
 
 **理论依据**：
 - 课程学习（Curriculum Learning）：先学简单后学复杂
 - GAN训练稳定性：避免初期判别器过强
 
 **实验验证**：
-- 单阶段：PSNR 27.5 dB，训练不稳定
-- 两阶段：PSNR 28.8 dB
-- 三阶段：PSNR 29.26 dB
+- 当前代码已实现三阶段逻辑
+- 单阶段、两阶段对照需要单独训练后再引用数值
 
 **可推广性**：
 - 适用于其他GAN任务（图像生成、风格迁移）
-- 已在论文中被引用（假设）
+- 可作为后续实验设计思路
 
 ### Q54: 分层评估的创新性体现在哪里？
 
@@ -1486,8 +1432,8 @@ TEST(PerformanceTest, InferenceSpeed) {
 - 推理速度慢，部署困难
 
 **本项目创新**：
-1. **LibTorch无缝迁移**：Python训练→C++推理
-2. **性能优化**：GPU+CPU流水线，批量处理
+1. **LibTorch工程化**：C++训练、C++推理，兼容 TorchScript 加载
+2. **性能优化预留**：GPU推理、文件夹批处理，Hybrid 流水线待完善
 3. **工程化**：Qt GUI，配置管理，日志系统
 
 **技术难点**：
@@ -1507,11 +1453,11 @@ TEST(PerformanceTest, InferenceSpeed) {
 **大多数项目**：只有命令行，不友好
 
 **本项目GUI特性**：
-1. **实时预览**：拖拽图像即可查看效果
+1. **实时预览**：通过文件对话框加载图像后查看处理结果
 2. **批量处理**：选择文件夹批量处理
-3. **进度显示**：实时显示进度和剩余时间
+3. **进度显示**：单图处理显示进度，批处理显示忙碌状态
 4. **毛玻璃效果**：美观的界面设计
-5. **性能监控**：显示PSNR、处理时间
+5. **状态提示**：显示模型加载、处理完成或错误信息；PSNR/SSIM 实时显示未实现
 
 **技术实现**：
 - Qt框架：跨平台
@@ -1669,7 +1615,7 @@ make -j8
 **常见问题**：
 - LibTorch版本不匹配：确保CUDA版本一致
 - OpenCV找不到：设置OpenCV_DIR环境变量
-- 编译错误：检查C++标准（需要C++14以上）
+- 编译错误：检查C++标准（需要C++17）
 
 详见`QUICKSTART.md`。
 
@@ -1685,17 +1631,17 @@ make -j8
 **难点2：GAN训练不稳定**
 - 问题：损失震荡，无法收敛
 - 现象：判别器损失接近0，生成器损失爆炸
-- 解决：三阶段训练+Relativistic GAN+梯度惩罚
+- 解决：三阶段训练、可配置GAN损失、可选R1正则化
 
 **难点3：推理速度慢**
-- 问题：Python推理80ms/张
+- 问题：深度模型推理会受 GPU、输入尺寸和模型结构影响
 - 现象：无法实时处理
-- 解决：C++实现+GPU加速+批量处理，降到30ms
+- 解决：C++/LibTorch推理、CUDA加速、文件夹批处理；具体速度以本机实测为准
 
 **难点4：显存不足**
-- 问题：batch=32时OOM
+- 问题：batch size 过大时可能 OOM
 - 现象：CUDA out of memory
-- 解决：禁用梯度+及时释放+动态调整batch size
+- 解决：推理阶段禁用梯度，训练阶段手动调小 batch size；当前没有自动 batch 重试
 
 ### Q63-Q70: 其他工程问题（简答）
 
@@ -1703,7 +1649,7 @@ make -j8
 打印中间结果（tensor.sizes(), tensor.mean()）、可视化特征图、对比Python输出、使用GDB单步调试、检查NaN/Inf。
 
 **Q64: 如何优化推理速度？**
-C++实现、GPU加速、批量处理、FP16半精度、模型量化、TensorRT优化。
+C++实现、GPU加速、减少不必要拷贝、文件夹批处理；FP16、模型量化、TensorRT 属于后续优化方向。
 
 **Q65: 如何部署到生产环境？**
 独立可执行文件、Docker容器、动态库、HTTP服务（Flask/FastAPI）。

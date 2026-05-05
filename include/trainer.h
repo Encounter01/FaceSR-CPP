@@ -177,6 +177,17 @@ struct TrainConfig {
 };
 
 // ============================================================================
+// AverageMeter — 滑动平均计数器
+// ============================================================================
+struct AverageMeter {
+    double sum = 0.0;
+    int count = 0;
+    void update(double val, int n = 1) { sum += val * n; count += n; }
+    double avg() const { return count > 0 ? sum / count : 0.0; }
+    void reset() { sum = 0.0; count = 0; }
+};
+
+// ============================================================================
 // Trainer — 训练器类
 // ============================================================================
 class Trainer {
@@ -237,7 +248,7 @@ private:
     VGGStyleDiscriminator discriminator_{nullptr};  // VGG判别器（约8.3M参数）
 
     // --- 损失函数 ---
-    CombinedLoss loss_fn_;  // 组合损失（像素+感知+GAN）
+    models::CombinedLoss loss_fn_;
 
     // --- 优化器 ---
     // Adam优化器: 自适应学习率，betas=(0.9, 0.99)
@@ -251,7 +262,7 @@ private:
     // - RandomSampler: 随机采样器
     using DataLoaderType = torch::data::StatelessDataLoader<
         torch::data::datasets::MapDataset<
-            FaceSRDataset,
+            utils::FaceSRDataset,
             torch::data::transforms::Stack<torch::data::Example<>>>,
         torch::data::samplers::RandomSampler>;
 

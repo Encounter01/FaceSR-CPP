@@ -1,6 +1,8 @@
 # 超分辨率人脸图像重建系统 (C++版本)
 
-基于LibTorch和Qt的人脸图像4倍超分辨率重建系统，支持GPU+CPU混合加速管线。
+基于 LibTorch、OpenCV 和 Qt 的人脸图像 4 倍超分辨率重建系统。当前源码实现了 C++ 训练、命令行推理、Qt GUI 和 Python 离线评估。
+
+> 当前实现细节以 [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) 为准。历史文档中关于 PixelShuffle、完整 GPU+CPU 混合流水线、frequency/gradient loss、spectral norm、Relativistic GAN 等描述如与源码不一致，以当前源码为准。
 
 ## 环境要求
 
@@ -87,9 +89,9 @@ cmake --build . --config Release
 5. 在CMakeSettings.json中设置依赖库路径
 6. 选择 "生成" -> "全部生成"
 
-## GPU+CPU混合模式
+## 设备与并行现状
 
-系统支持GPU+CPU混合加速管线，最大化硬件利用率：
+当前代码的训练和推理都支持 CPU/CUDA。数据读取、图像预处理、数据增强和图像保存由 CPU/OpenCV 完成；神经网络前向、反向传播和参数更新在 LibTorch 选择的设备上执行。
 
 | 任务 | 设备 | 说明 |
 |------|------|------|
@@ -99,16 +101,9 @@ cmake --build . --config Release
 | 数据增强 | CPU | 图像变换等预处理操作 |
 | 图像后处理/保存 | CPU | IO密集型操作 |
 
-推理时使用三阶段流水线并行：CPU线程负责图像加载/预处理/后处理/保存，GPU线程负责神经网络推理，二者并发执行。
+`include/inference.h` 中预留了 Hybrid 流水线接口和有界队列，但 `src/inference.cpp` 当前的文件夹处理是顺序逐张处理，不是完整的 CPU 预处理、GPU 推理、CPU 后处理三阶段并行流水线。
 
-### 设备模式
-
-| 模式 | 说明 |
-|------|------|
-| `auto` | 自动检测，有GPU时使用混合模式 |
-| `hybrid` | GPU+CPU混合模式（推荐） |
-| `gpu` | 仅GPU模式 |
-| `cpu` | 仅CPU模式 |
+当前命令行推理默认自动使用 CUDA（如果可用），可通过 `--cpu` 强制 CPU。
 
 ## 使用方法
 
@@ -123,12 +118,9 @@ facesr_train \
     --train-hr data/train/HR \
     --train-lr data/train/LR \
     --val-hr data/val/HR \
-    --val-lr data/val/LR \
     --batch-size 16 \
     --epochs 200 \
     --lr 0.0002 \
-    --device auto \
-    --workers 4 \
     --config config/train_config.ini
 
 # 从检查点恢复训练
@@ -142,15 +134,14 @@ facesr_train --resume checkpoints --epochs 200
 | `--train-hr <路径>` | data/train/HR | 训练集HR图像目录 |
 | `--train-lr <路径>` | data/train/LR | 训练集LR图像目录 |
 | `--val-hr <路径>` | data/val/HR | 验证集HR图像目录 |
-| `--val-lr <路径>` | data/val/LR | 验证集LR图像目录 |
 | `--batch-size <数值>` | 12 | 批次大小 |
 | `--epochs <数值>` | 300 | 训练轮数 |
 | `--lr <数值>` | 0.0002 | 学习率 |
-| `--device <类型>` | auto | 设备模式：auto/hybrid/gpu/cpu |
-| `--workers <数值>` | 4 | 数据加载线程数 |
-| `--no-pin-memory` | - | 禁用锁页内存（默认启用） |
 | `--config <路径>` | - | 配置文件路径 |
 | `--resume <路径>` | - | 从检查点恢复训练 |
+| `--cpu` | - | 强制 CPU 训练 |
+
+其他训练参数（如 `val_lr_dir`、`num_workers`、阶段边界和损失权重）通过 `config/train_config.ini` 配置。
 
 ### 推理/测试
 
@@ -160,9 +151,6 @@ facesr_test --model checkpoints/generator_epoch190.pt --input image.jpg --output
 
 # 批量处理
 facesr_test --model checkpoints/generator_epoch190.pt --input input_folder --output output_folder
-
-# 指定设备模式
-facesr_test --model checkpoints/generator_epoch190.pt --input image.jpg --device hybrid
 
 # 仅使用CPU
 facesr_test --model checkpoints/generator_epoch190.pt --input image.jpg --cpu
@@ -179,16 +167,18 @@ facesr_test --model checkpoints/generator_epoch190.pt --input image.jpg --cpu
 |------|--------|------|
 | `--model <路径>` | **必需** | 模型文件路径 |
 | `--input <路径>` | **必需** | 输入图像或文件夹路径 |
-| `--output <路径>` | results | 输出路径 |
-| `--scale <数值>` | 4 | 放大倍数 |
-| `--device <类型>` | auto | 设备模式：auto/hybrid/gpu/cpu |
-| `--cpu` | - | 仅使用CPU（等效于 `--device cpu`） |
+| `--output <路径>` | 单图默认生成同目录 `原名_sr.ext`；目录默认生成 `输入目录_sr/` | 输出路径 |
+| `--scale <数值>` | 4 | 放大倍数；当前生成器代码主要按 4× 设计，非 4 时只执行一次 2× 上采样 |
+| `--cpu` | - | 仅使用CPU |
+| `--attention` | - | 启用 CBAM attention，必须与训练时模型结构一致 |
 
 ### GUI应用
 
 ```bash
 facesr_gui_app
 ```
+
+注意：当前 GUI 通过 `DeviceType::Auto` 创建推理器，界面上没有 `--attention` 等结构参数开关。若加载的是启用 CBAM 的 LibTorch 原生权重，优先使用命令行 `facesr_test --attention`；TorchScript 模型则由文件本身携带网络结构。
 
 ## 项目结构
 
@@ -280,13 +270,15 @@ FaceSR_CPP/
 
 ### 生成器 (RRDB Net)
 - 23个RRDB块
-- PixelShuffle上采样
+- 最近邻插值 + 卷积上采样（两次2倍上采样，实现4倍放大）
+- 可选CBAM注意力模块
 - 参数量: ~16.7M
 
 ### 判别器 (VGG Style)
 - VGG风格多层卷积
+- BatchNorm + LeakyReLU
 - 全连接输出层
-- 参数量: ~8.3M
+- 参数量: 约17M（以运行时 `get_num_parameters()` 日志为准）
 
 ## 训练策略
 
@@ -294,9 +286,9 @@ FaceSR_CPP/
 
 | 阶段 | 轮次范围 | 损失函数 | 说明 |
 |------|----------|----------|------|
-| 阶段1 | 0 - 30 | 仅L1像素损失 | 稳定初始化网络权重 |
-| 阶段2 | 30 - 80 | L1 + VGG感知损失 | 引入感知损失提升视觉质量 |
-| 阶段3 | 80 - 200 | L1 + VGG + GAN对抗损失 | 对抗训练生成高频细节 |
+| 阶段1 | 0 - `phase1_epochs` | 仅像素损失 | 学习基础重建映射 |
+| 阶段2 | `phase1_epochs` - `phase2_epochs` | 像素损失 + VGG感知损失 | 引入感知特征提升纹理结构 |
+| 阶段3 | `phase2_epochs` 之后 | 像素损失 + VGG感知损失 + GAN损失 | 对抗训练提升视觉真实感 |
 
 阶段边界可在 `config/train_config.ini` 中通过 `phase1_epochs` 和 `phase2_epochs` 参数调整。
 
@@ -309,21 +301,22 @@ FaceSR_CPP/
 - `config/finetune_phase_b.ini`
 - `config/finetune_phase_c.ini`
 
-这组配置会启用 `models/vgg19_features.pt`、CBAM attention、spectral norm，
-并打开 frequency / gradient loss，用来抑制“看起来发糊、边缘偏软”的问题。
+这组配置会尝试启用 `models/vgg19_features.pt`、CBAM attention、hinge GAN、R1 penalty 等更锐利的训练设定。
+
+注意：当前代码已实现 CBAM、VGG感知损失、hinge GAN 和可选 R1 penalty；`frequency_weight`、`gradient_weight` 和 `use_spectral_norm` 目前只是配置预留项，核心损失中尚未实际计算 frequency/gradient loss，判别器也未实际应用 spectral norm。
 
 ## 配置文件说明
 
 ### config/train_config.ini
 
-训练相关的所有参数配置，包括数据路径、训练超参数、损失权重、设备模式和输出设置。命令行参数会覆盖配置文件中的同名设置。
+训练相关参数配置，包括数据路径、训练超参数、损失权重、输出设置和模型开关。命令行参数会覆盖配置文件中的同名设置。
 
 主要配置节：
 - `[data]` - 训练/验证数据路径和图像尺寸
 - `[training]` - batch_size、epochs、学习率、阶段边界
 - `[loss]` - 损失函数权重和类型
-- `[device]` - 设备模式（auto/hybrid/gpu/cpu）和pin_memory
 - `[output]` - 检查点和结果输出目录、保存间隔
+- `[model]` - VGG权重路径、CBAM attention、谱归一化预留开关
 
 ### config/ui_config.ini
 
@@ -391,9 +384,9 @@ enable_custom_background=false
 ## 注意事项
 
 1. **显存需求**: 训练需要约8-12GB显存
-2. **LibTorch版本**: 确保LibTorch版本与PyTorch训练版本兼容
-3. **模型格式**: 支持.pt和.pth格式的PyTorch模型
-4. **pin_memory**: 混合模式下启用pin_memory可加速CPU到GPU的数据传输
+2. **LibTorch版本**: 确保 LibTorch、CUDA 和模型保存环境版本兼容
+3. **模型格式**: 推理器优先加载 TorchScript `.pt`，失败后按当前 RRDBNet 结构加载 C++ `torch::save` 保存的 LibTorch 权重；普通 Python `state_dict` 不能直接当作完整模型加载
+4. **扩展项**: `frequency_weight`、`gradient_weight`、`use_spectral_norm` 等配置项当前为预留能力，详见 `docs/IMPLEMENTATION_STATUS.md`
 
 ## 常见问题
 
@@ -407,7 +400,7 @@ A: 将LibTorch/lib下的DLL复制到可执行文件目录。
 A: 检查CUDA Toolkit和cuDNN是否正确安装。
 
 ### Q: CUDA 11.8与高版本MSVC的兼容性问题
-A: CUDA 11.8的nvcc不支持MSVC 19.40+。本项目不编译.cu文件（仅链接预编译的LibTorch CUDA库），CMakeLists.txt中已通过 `TORCH_CUDA_SKIP_NVCC` 选项跳过nvcc编译器检测，无需降级MSVC版本。
+A: 当前 `CMakeLists.txt` 的 `project(... LANGUAGES CXX)` 只启用 C++，项目本身不编译 `.cu` 文件，CUDA 主要来自预编译的 LibTorch CUDA 库。若本地 CMake 或 LibTorch 仍触发 CUDA 工具链检测，应以实际报错为准调整 CUDA/MSVC/LibTorch 版本组合。
 
 ### Q: Qt版本选择
 A: CMake会自动检测，优先使用Qt6，回退Qt5。无需手动指定版本。

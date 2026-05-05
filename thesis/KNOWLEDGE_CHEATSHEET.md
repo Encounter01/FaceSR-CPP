@@ -2,6 +2,8 @@
 
 > 快速查阅关键概念和技术要点
 > 适用于：面试前复习、答辩前准备
+>
+> 当前代码实现边界见 `../docs/IMPLEMENTATION_STATUS.md`。本速查表已按当前源码修正：不要把 PixelShuffle、转置卷积、Relativistic GAN、完整混合流水线、FP16、梯度裁剪、学习率调度器描述为已实现功能。
 
 ---
 
@@ -96,7 +98,7 @@ L_G = -log(D(fake))
 **本项目应用**：
 - RRDB生成器
 - VGG-style判别器
-- Relativistic GAN
+- 默认 Vanilla GAN，可通过配置选择 hinge、lsgan、wgan 等类型
 
 ### 感知损失（Perceptual Loss）
 
@@ -133,9 +135,9 @@ L_adversarial = -log(D(SR))
 - 骗过判别器
 
 **本项目应用**：
-- 权重0.005（阶段C）
-- Relativistic GAN
-- 逐步引入
+- 默认权重来自 `config/train_config.ini` 中的 `gan_weight`
+- 默认 GAN 类型为 vanilla，`train_config_sharper.ini` 可配置 hinge
+- 通过阶段训练逐步引入
 
 ### 批归一化（Batch Normalization）
 
@@ -188,14 +190,16 @@ f(x) = 1 / (1 + e^(-x))
 **方法2：双线性插值**
 - 平滑但模糊
 
-**方法3：转置卷积（本项目）**
+**方法3：最近邻插值 + 卷积（本项目当前实现）**
 ```
-Conv2d(in_channels, out_channels, kernel_size=3, stride=2, padding=1)
+F::interpolate(..., scale_factor=2, mode=nearest)
+Conv2d(..., kernel_size=3, padding=1)
 ```
-- 可学习的上采样
-- 效果最好
+- 插值负责放大尺寸
+- 卷积负责修正和重建特征
+- 相比转置卷积更不容易出现棋盘格伪影
 
-**方法4：PixelShuffle**
+**方法4：PixelShuffle（当前代码未使用）**
 - 重排像素实现上采样
 - 计算效率高
 
@@ -213,13 +217,13 @@ if ||g|| > threshold:
 - 防止梯度爆炸
 - 稳定训练
 
-**本项目应用**：
-- threshold = 1.0
-- 应用于生成器
+**本项目状态**：
+- 当前训练代码未实现梯度裁剪
+- 可作为后续稳定训练的增强方向
 
 ### 学习率调度（Learning Rate Scheduling）
 
-**策略1：阶梯衰减（本项目）**
+**策略1：阶梯衰减（当前代码未实现）**
 ```
 epoch < 50:  lr = 1e-4
 epoch < 150: lr = 5e-5
@@ -333,7 +337,7 @@ target_link_libraries(main ${TORCH_LIBRARIES} ${OpenCV_LIBS})
 **本项目配置**：
 - LibTorch路径：CMAKE_PREFIX_PATH
 - OpenCV路径：OpenCV_DIR
-- C++标准：C++14
+- C++标准：C++17
 
 ### Qt GUI开发
 
@@ -349,16 +353,14 @@ layout->addWidget(button);
 setLayout(layout);
 ```
 
-**事件处理**：
+**文件选择**：
 ```cpp
-void dragEnterEvent(QDragEnterEvent* event) override {
-    if (event->mimeData()->hasUrls())
-        event->acceptProposedAction();
-}
+QString filePath = QFileDialog::getOpenFileName(
+    this, "打开图像", "", "Images (*.png *.jpg *.jpeg *.bmp)");
 ```
 
 **本项目应用**：
-- 拖拽上传图像
+- 文件对话框打开图像
 - 实时预览
 - 进度条显示
 
@@ -412,7 +414,8 @@ public:
 **本项目应用**：
 - 模型加载异常
 - 图像读取异常
-- OOM异常处理
+- 推理异常日志记录
+- 当前未实现 OOM 自动重试
 
 ### Lambda表达式
 
@@ -609,20 +612,27 @@ key = value
 **本项目应用**：
 - 训练进度记录
 - 错误追踪
-- 性能监控
+- 训练和推理状态记录
 
 ### 模型版本管理
 
 **命名规范**：
 ```
-epoch_XXX_psnr_YY.Y.pt
+generator_epochN.pt
+discriminator_epochN.pt
+generator_latest.pt
+generator_best.pt
+train_state.bin
+optimizer_g_state.pt
+optimizer_d_state.pt
 ```
 
 **元信息**：
 - epoch数
-- PSNR值
-- 训练时间
-- 配置文件
+- best_psnr
+- global_step
+- 优化器状态
+- 当前代码没有生成 JSON 元信息文件
 
 **策略**：
 - latest：最新模型
@@ -753,7 +763,7 @@ LPIPS看感知，各有侧重点
 **性能优化**：
 ```
 C++快一倍，GPU快十倍
-批量快三倍，流水线再快
+批量可扩展，流水线待完善
 ```
 
 ---

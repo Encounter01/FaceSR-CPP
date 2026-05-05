@@ -18,14 +18,28 @@ namespace fs = std::filesystem;
 namespace facesr {
 
 // ============================================================================
+// load_model_from_file — 尝试加载模型文件
+// 先尝试 TorchScript (jit::load)，失败则尝试 torch::load
+// ============================================================================
+static bool try_load_jit(const std::string& path, torch::jit::Module& out,
+                         torch::Device device) {
+    try {
+        out = torch::jit::load(path, device);
+        out.eval();
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+// ============================================================================
 // 构造函数 — 加载模型并初始化
 // ============================================================================
 Inference::Inference(const std::string& model_path, int scale,
                      bool use_gpu, bool use_attention)
-    : device_(torch::kCPU)  // 先初始化为CPU
+    : device_(torch::kCPU)
     , scale_(scale) {
 
-    // 选择推理设备: GPU可用且用户要求时使用GPU
     if (use_gpu && torch::cuda::is_available()) {
         device_ = torch::Device(torch::kCUDA);
         LOG_INFO("Inference using CUDA");
@@ -33,19 +47,61 @@ Inference::Inference(const std::string& model_path, int scale,
         LOG_INFO("Inference using CPU");
     }
 
-    // 创建RRDB生成器（参数与训练时必须一致）
-    generator_ = RRDBNet(3, 3, constants::RRDB_NUM_FEAT,
-                         constants::RRDB_NUM_BLOCK,
-                         constants::RRDB_NUM_GROW_CH, scale,
-                         use_attention);
-    generator_->to(device_);  // 移到推理设备
+    // 先尝试 TorchScript 格式 (Python torch.jit.save 保存的)
+    if (try_load_jit(model_path, jit_module_, device_)) {
+        use_jit_ = true;
+        model_loaded_ = true;
+        LOG_INFO("Loaded TorchScript model from: ", model_path);
+        return;
+    }
 
-    // 加载训练好的权重
+    // 回退到 LibTorch 原生格式 (C++ torch::save 保存的)
+    generator_ = RRDBNet(3, 3, constants::RRDB_NUM_FEATURES,
+                         constants::RRDB_NUM_BLOCKS,
+                         constants::RRDB_GROWTH_CHANNELS, scale,
+                         use_attention);
+    generator_->to(device_);
     try {
         torch::load(generator_, model_path);
-        generator_->eval();  // 设置为评估模式（关闭Dropout，BN使用滑动统计量）
+        generator_->eval();
         model_loaded_ = true;
-        LOG_INFO("Model loaded successfully from: ", model_path);
+        LOG_INFO("Loaded LibTorch model from: ", model_path);
+    } catch (const std::exception& e) {
+        LOG_ERROR("Failed to load model: ", e.what());
+        model_loaded_ = false;
+    }
+}
+
+Inference::Inference(const std::string& model_path, int scale, DeviceType device_type)
+    : device_(torch::kCPU)
+    , scale_(scale)
+    , device_type_(device_type) {
+
+    bool use_gpu = (device_type == DeviceType::CUDA || device_type == DeviceType::Auto ||
+                    device_type == DeviceType::Hybrid);
+    if (use_gpu && torch::cuda::is_available()) {
+        device_ = torch::Device(torch::kCUDA);
+        LOG_INFO("Inference using CUDA");
+    } else {
+        LOG_INFO("Inference using CPU");
+    }
+
+    if (try_load_jit(model_path, jit_module_, device_)) {
+        use_jit_ = true;
+        model_loaded_ = true;
+        LOG_INFO("Loaded TorchScript model from: ", model_path);
+        return;
+    }
+
+    generator_ = RRDBNet(3, 3, constants::RRDB_NUM_FEATURES,
+                         constants::RRDB_NUM_BLOCKS,
+                         constants::RRDB_GROWTH_CHANNELS, scale);
+    generator_->to(device_);
+    try {
+        torch::load(generator_, model_path);
+        generator_->eval();
+        model_loaded_ = true;
+        LOG_INFO("Loaded LibTorch model from: ", model_path);
     } catch (const std::exception& e) {
         LOG_ERROR("Failed to load model: ", e.what());
         model_loaded_ = false;
@@ -64,20 +120,21 @@ cv::Mat Inference::process(const cv::Mat& input) {
         return {};
     }
 
-    // Mat → Tensor: BGR uint8 → RGB float [1,3,H,W], 值域[0,1]
-    auto input_tensor = image_utils::mat_to_tensor(input);
-    input_tensor = input_tensor.to(device_);  // 移到推理设备
+    auto input_tensor = utils::mat_to_tensor(input);
+    input_tensor = input_tensor.to(device_);
 
-    // 前向传播（禁用梯度计算，节省内存和加速）
     torch::Tensor output;
     {
-        torch::NoGradGuard no_grad;  // RAII式禁用梯度
-        output = generator_->forward(input_tensor);
-        output = output.clamp(0.0, 1.0);  // clamp到[0,1]防止越界
+        torch::NoGradGuard no_grad;
+        if (use_jit_) {
+            output = jit_module_.forward({input_tensor}).toTensor();
+        } else {
+            output = generator_->forward(input_tensor);
+        }
+        output = output.clamp(0.0, 1.0);
     }
 
-    // Tensor → Mat: RGB float → BGR uint8
-    return image_utils::tensor_to_mat(output.cpu());
+    return utils::tensor_to_mat(output.cpu());
 }
 
 // ============================================================================
@@ -134,7 +191,7 @@ int Inference::process_folder(const std::string& input_dir,
 
         // 检查是否为支持的图像格式
         bool supported = false;
-        for (const auto& fmt : constants::SUPPORTED_FORMATS) {
+        for (const auto& fmt : constants::SUPPORTED_EXTENSIONS) {
             if (ext == fmt) { supported = true; break; }
         }
         if (!supported) continue;

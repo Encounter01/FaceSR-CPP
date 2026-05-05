@@ -9,10 +9,9 @@
 namespace F = torch::nn::functional;
 
 namespace facesr {
-namespace models {
 
-VGGStyleDiscriminatorImpl::VGGStyleDiscriminatorImpl(int in_channels, int num_feat, int input_size)
-    : input_size_(input_size) {
+VGGStyleDiscriminatorImpl::VGGStyleDiscriminatorImpl(int in_channels, int num_feat, int input_size, bool use_spectral_norm)
+    : input_size_(input_size), use_spectral_norm_(use_spectral_norm) {
 
     // 特征提取层
     conv0_0_ = register_module("conv0_0",
@@ -119,5 +118,4 @@ int64_t VGGStyleDiscriminatorImpl::get_num_parameters() const {
     return total;
 }
 
-}  // namespace models
 }  // namespace facesr

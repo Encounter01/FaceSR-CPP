@@ -10,6 +10,7 @@
  */
 
 #include <torch/torch.h>
+#include <torch/script.h>
 #include <opencv2/opencv.hpp>
 #include "models/generator.h"
 #include "common/config.h"
@@ -86,9 +87,11 @@ public:
     /**
      * @param model_path 模型文件路径
      * @param scale 放大倍数
-     * @param use_gpu 是否使用GPU (向后兼容)
+     * @param use_gpu 是否使用GPU
+     * @param use_attention 是否启用CBAM注意力模块
      */
-    Inference(const std::string& model_path, int scale = 4, bool use_gpu = true);
+    Inference(const std::string& model_path, int scale = 4,
+              bool use_gpu = true, bool use_attention = false);
 
     /**
      * @param model_path 模型文件路径
@@ -106,22 +109,16 @@ public:
 
     /**
      * @brief 处理图像文件
-     * @param input_path 输入图像路径
-     * @param output_path 输出图像路径
      */
-    void process_file(const std::string& input_path, const std::string& output_path);
+    bool process_file(const std::string& input_path, const std::string& output_path);
 
     /**
-     * @brief 批量处理文件夹 (混合模式下使用GPU+CPU流水线)
-     * @param input_dir 输入文件夹
-     * @param output_dir 输出文件夹
+     * @brief 批量处理文件夹
      */
-    void process_folder(const std::string& input_dir, const std::string& output_dir);
+    int process_folder(const std::string& input_dir, const std::string& output_dir);
 
-    /**
-     * @brief 检查模型是否已加载
-     */
     bool is_loaded() const { return model_loaded_; }
+    bool isModelLoaded() const { return model_loaded_; }
 
     /**
      * @brief 获取放大倍数
@@ -159,9 +156,12 @@ private:
      */
     void process_folder_sequential(const std::string& input_dir, const std::string& output_dir);
 
-    models::RRDBNet generator_{nullptr};
-    torch::Device gpu_device_;     // GPU设备 (推理用)
-    torch::Device cpu_device_;     // CPU设备 (预处理/后处理)
+    RRDBNet generator_{nullptr};
+    torch::jit::Module jit_module_;
+    bool use_jit_ = false;
+    torch::Device device_{torch::kCPU};
+    torch::Device gpu_device_{torch::kCPU};
+    torch::Device cpu_device_{torch::kCPU};
     int scale_;
     bool model_loaded_ = false;
     DeviceType device_type_;

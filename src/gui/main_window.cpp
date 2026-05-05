@@ -573,7 +573,7 @@ void MainWindow::showAbout() {
         "<li>三阶段并行: CPU预处理 → GPU推理 → CPU后处理</li>"
         "<li>批量处理功能</li>"
         "</ul>"
-        "<p>作者: 西安石油大学</p>"
+        "<p>作者: Encounter01</p>"
     );
 }
 
