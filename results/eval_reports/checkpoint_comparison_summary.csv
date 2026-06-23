@@ -1,0 +1,5 @@
+﻿avg_psnr,avg_psnr_gain_vs_bicubic,avg_ssim,avg_ssim_gain_vs_bicubic,checkpoint,count,median_psnr,median_psnr_gain_vs_bicubic,median_ssim,median_ssim_gain_vs_bicubic,negative_psnr_gain_count,negative_ssim_gain_count
+28.46339,,0.819148,,bicubic,3000,28.494993,,0.825456,,,
+29.441479,0.978087,0.840618,0.02147,best,3000,29.491741,0.958999,0.847202,0.021093,2,1
+29.258062,0.794669,0.832859,0.013711,latest,3000,29.302582,0.755592,0.839622,0.013454,2,35
+29.552015,1.088623,0.843166,0.024018,epoch190,3000,29.59716,1.071836,0.849583,0.023603,4,4

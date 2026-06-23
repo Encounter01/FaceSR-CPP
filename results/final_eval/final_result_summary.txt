@@ -1,0 +1,21 @@
+Final FaceSR model: A4 three-stage
+Checkpoint: facesr_a4_best_psnr28.6019.pt
+SHA256: ab19c62e30e8d743fc9fcfd210b2b3afefd2f7f8e659774a57781eb1a92aada6
+
+Training validation:
+A4 best PSNR/SSIM: 28.6084 dB / 0.8480
+A5 best PSNR/SSIM: 28.3182 dB / 0.8420
+Bicubic PSNR/SSIM: 27.5021 dB / 0.8244
+
+Visual panel quick review on 30 samples:
+LR  PSNR: 26.4019 dB, SSIM: 0.769181
+A4  PSNR: 28.7631 dB, SSIM: 0.825512
+A5  PSNR: 28.4157 dB, SSIM: 0.821792
+
+Decision:
+A4 outperforms A5 in PSNR/SSIM and shows no worse visual quality.
+Final deployment/research model uses A4 generator_best.pt.
+
+Supplement:
+Full A4 validation metrics were recomputed on 3000 validation images and saved
+to results/revision/a4_best_full_val/a4_best_full_metrics.json.

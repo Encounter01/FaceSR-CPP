@@ -116,7 +116,16 @@ See [Usage Guide](docs/usage.md) for complete command examples.
 
 ## Data And Checkpoints
 
-Large datasets, generated results, and checkpoint files are not tracked in Git.
+Large datasets, generated outputs, and training checkpoint directories are not tracked in Git. Pretrained model weights are distributed through GitHub Releases instead of the repository history.
+
+Recommended release assets:
+
+- `facesr_a4_best_psnr28.6019.pt`: recommended final A4 model.
+- `facesr_a4_best_cpu_forward.pt`: CPU-forward-compatible final A4 model.
+- `generator_epoch190.pt`: optional legacy generator checkpoint.
+- `generator_epoch190_traced.pt`: optional TorchScript legacy generator checkpoint.
+
+Download the required `.pt` files from the `v1.0-models` release and place them under `checkpoints/` or pass their paths with `--model`.
 
 Default training layout:
 

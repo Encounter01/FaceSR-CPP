@@ -30,10 +30,17 @@ checkpoints/*
 datasets/
 data/
 
-# Results output (keep results/eval_reports/ for documentation)
-results/
+# Results output (keep only small summary artifacts for documentation)
+results/*
 !results/eval_reports/
-!results/eval_reports/**
+results/eval_reports/*
+!results/eval_reports/checkpoint_comparison_bar.png
+!results/eval_reports/checkpoint_comparison_summary.csv
+!results/eval_reports/model_selection_and_sharper_plan.md
+!results/eval_reports/worst_cases_best.csv
+!results/final_eval/
+results/final_eval/*
+!results/final_eval/final_result_summary.txt
 
 
 # Large archive files
