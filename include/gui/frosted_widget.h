@@ -2,6 +2,9 @@
 /**
  * @file frosted_widget.h
  * @brief 毛玻璃面板组件
+ *
+ * 毛玻璃面板用于提升 GUI 演示观感。
+ * 它通过截取父控件背景并做 separable blur 实现，不参与训练、推理或指标计算。
  */
 
 #include "gui/style_config.h"

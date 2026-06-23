@@ -11,8 +11,9 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = (Resolve-Path (Join-Path $scriptDir "..\..")).Path
 
 $experiments = [ordered]@{
-    "a1_l1_only_50e" = "config/ablations_quick/a1_l1_only_50e.ini"
-    "a4_three_stage_50e" = "config/ablations_quick/a4_three_stage_50e.ini"
+    "a1_l1_only_50e"             = "config/ablations_quick/a1_l1_only_50e.ini"
+    "a2_l1_perceptual_50e"       = "config/ablations_quick/a2_l1_perceptual_50e.ini"
+    "a4_three_stage_50e"         = "config/ablations_quick/a4_three_stage_50e.ini"
     "a5_three_stage_attention_50e" = "config/ablations_quick/a5_three_stage_attention_50e.ini"
 }
 

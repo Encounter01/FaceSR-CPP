@@ -2,6 +2,9 @@
 /**
  * @file background_widget.h
  * @brief 背景渲染组件
+ *
+ * 该组件只负责 GUI 背景绘制，与超分模型无关。
+ * 背景内容会缓存到 QPixmap，窗口大小变化时再重新渲染，避免每次 paintEvent 都重复计算渐变或缩放图片。
  */
 
 #include "gui/style_config.h"

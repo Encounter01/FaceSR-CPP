@@ -1,6 +1,9 @@
 /**
  * @file metrics.cpp
  * @brief 评估指标模块实现
+ *
+ * 指标计算全部放到 CPU 上完成，避免验证阶段额外占用 GPU 显存。
+ * 输入张量默认已经是 [0,1] 范围，和训练/推理的数据口径一致。
  */
 
 #include "utils/metrics.h"
@@ -10,6 +13,8 @@ namespace facesr {
 namespace utils {
 
 double calculate_psnr(torch::Tensor pred, torch::Tensor target, double max_val) {
+    // PSNR = 20 * log10(MAX / sqrt(MSE))。
+    // MSE 越小，PSNR 越高；但过度平滑的图像也可能取得不错的 PSNR，所以需要结合 SSIM 和视觉对比。
     // 确保在CPU上
     pred = pred.detach().cpu();
     target = target.detach().cpu();
@@ -33,6 +38,8 @@ double calculate_psnr(torch::Tensor pred, torch::Tensor target, double max_val) 
 }
 
 double calculate_ssim(torch::Tensor pred, torch::Tensor target, int window_size) {
+    // 这里用高斯窗口计算局部均值、方差和协方差，再按 SSIM 公式求平均。
+    // groups=channels 的 conv2d 让每个颜色通道独立计算局部统计量。
     // 确保在CPU上
     pred = pred.detach().cpu().to(torch::kFloat32);
     target = target.detach().cpu().to(torch::kFloat32);
@@ -100,6 +107,7 @@ void MetricCalculator::reset() {
 }
 
 void MetricCalculator::update(torch::Tensor pred, torch::Tensor target) {
+    // 按 batch 内样本逐张累计，避免 batch 大小时指标被张量整体平均方式影响。
     int batch_size = pred.size(0);
 
     for (int i = 0; i < batch_size; ++i) {

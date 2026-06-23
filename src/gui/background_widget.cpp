@@ -1,6 +1,8 @@
 /**
  * @file background_widget.cpp
  * @brief 背景渲染组件实现
+ *
+ * 背景绘制走缓存策略：paintEvent 只贴图，配置或尺寸变化时才重新 renderBackground()。
  */
 
 #include "gui/background_widget.h"
@@ -38,6 +40,7 @@ void BackgroundWidget::paintEvent(QPaintEvent* event) {
     Q_UNUSED(event);
 
     if (needsUpdate_ || cachedBackground_.size() != size()) {
+        // 只有配置变化或窗口尺寸变化时才重建缓存，避免频繁重绘造成 UI 卡顿。
         renderBackground();
         needsUpdate_ = false;
     }

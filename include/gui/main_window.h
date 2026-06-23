@@ -2,6 +2,11 @@
 /**
  * @file main_window.h
  * @brief Qt主窗口
+ *
+ * GUI 层只负责交互和展示：
+ * - 打开图像、加载模型、启动重建、保存结果。
+ * - 通过后台线程调用 Inference，避免模型推理阻塞 Qt 主线程。
+ * - 不直接依赖 Trainer；训练和推理在工程结构上保持分离。
  */
 
 #include <QMainWindow>
@@ -10,6 +15,8 @@
 #include <QProgressBar>
 #include <QThread>
 #include <QPixmap>
+#include <QSize>
+#include <QStringList>
 #include <memory>
 
 // 前向声明 - 完全避免包含 OpenCV 和 LibTorch 头文件
@@ -33,6 +40,8 @@ namespace gui {
 /**
  * @brief 后台处理线程
  * 使用 PIMPL 模式隔离实现细节
+ *
+ * 单张图像推理可能耗时较长，放到 QThread 中执行可以保持窗口响应。
  */
 class ProcessThread : public QThread {
     Q_OBJECT
@@ -55,12 +64,14 @@ private:
 
 /**
  * @brief 批量处理后台线程
+ *
+ * 目录批处理同样放在后台线程中执行；当前进度条只表示忙碌状态，不表示精确百分比。
  */
 class BatchThread : public QThread {
     Q_OBJECT
 
 public:
-    BatchThread(Inference* inferencer, const QString& inputDir, const QString& outputDir);
+    BatchThread(Inference* inferencer, const QStringList& inputFiles, const QString& outputDir);
     ~BatchThread();
     void run() override;
 
@@ -85,6 +96,7 @@ public:
 
     void setImage(const QPixmap& pixmap);
     void clearImage();
+    void setMaxDisplaySize(const QSize& maxSize);
 
     QPixmap getPixmap() const { return pixmap_; }
 
@@ -94,11 +106,14 @@ protected:
 private:
     void updateDisplay();
     QPixmap pixmap_;
+    QSize maxDisplaySize_;
 };
 
 
 /**
  * @brief 主窗口类
+ *
+ * MainWindow 是演示闭环的组织者：QPixmap 用于界面显示，真正推理前再转换为 cv::Mat。
  */
 class MainWindow : public QMainWindow {
     Q_OBJECT

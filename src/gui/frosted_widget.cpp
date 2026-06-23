@@ -1,6 +1,9 @@
 /**
  * @file frosted_widget.cpp
  * @brief 毛玻璃面板组件实现
+ *
+ * 模糊算法分水平和垂直两次滑动窗口完成，比直接二维卷积更容易控制计算量。
+ * 这部分属于界面增强，不影响超分辨率结果。
  */
 
 #include "gui/frosted_widget.h"
@@ -125,7 +128,8 @@ QImage FrostedWidget::applyBlur(const QImage& source, int radius) {
     // 转换为 ARGB32 格式
     QImage result = source.convertToFormat(QImage::Format_ARGB32);
 
-    // 应用栈模糊（水平 + 垂直）
+    // 应用栈模糊（水平 + 垂直）。
+    // 两次一维模糊近似二维盒式模糊，复杂度更低，适合 UI 实时重绘。
     stackBlurHorizontal(result, radius);
     stackBlurVertical(result, radius);
 

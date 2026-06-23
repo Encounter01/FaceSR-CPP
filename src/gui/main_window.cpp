@@ -1,6 +1,10 @@
-/**
+﻿/**
  * @file main_window.cpp
  * @brief Qt主窗口实现
+ *
+ * 读 GUI 代码时可以按用户操作顺序看：
+ * openImage() -> loadModel() -> processImage() -> onProcessFinished() -> saveImage()。
+ * 其中 processImage() 只负责启动线程，真正的算法推理仍由 Inference::process() 完成。
  */
 
 // 先包含 Qt 头文件
@@ -36,7 +40,12 @@
 #include <QApplication>
 #include <QResizeEvent>
 #include <QDir>
+#include <QFileInfo>
+#include <QInputDialog>
+#include <QSet>
+#include <QSizePolicy>
 #include <filesystem>
+#include <vector>
 
 namespace facesr {
 namespace gui {
@@ -52,7 +61,9 @@ struct ProcessThread::Impl {
         : inferencer(inf), inputMat(mat) {}
 };
 
-// QPixmap 转 cv::Mat 辅助函数 (返回BGR格式, 与OpenCV/推理管道一致)
+// QPixmap 转 cv::Mat 辅助函数。
+// Qt 显示使用 RGB，OpenCV/Inference 入口约定 BGR，因此这里显式转换，避免颜色通道错位。
+// 返回 BGR 格式，与 OpenCV/推理管道一致。
 static cv::Mat pixmapToMat(const QPixmap& pixmap) {
     QImage image = pixmap.toImage().convertToFormat(QImage::Format_RGB888);
     cv::Mat mat(image.height(), image.width(), CV_8UC3,
@@ -62,7 +73,8 @@ static cv::Mat pixmapToMat(const QPixmap& pixmap) {
     return bgr;
 }
 
-// cv::Mat 转 QPixmap 辅助函数
+// cv::Mat 转 QPixmap 辅助函数。
+// 推理结果从 OpenCV BGR 回到 Qt RGB 显示。
 static QPixmap matToPixmap(const cv::Mat& mat) {
     cv::Mat rgb;
     if (mat.channels() == 3) {
@@ -82,6 +94,7 @@ ProcessThread::~ProcessThread() = default;
 
 void ProcessThread::run() {
     try {
+        // 这里运行在后台线程中，避免大图推理或 GPU 同步时阻塞 UI 事件循环。
         emit progress(50);
         cv::Mat result = pImpl_->inferencer->process(pImpl_->inputMat);
         emit progress(100);
@@ -96,26 +109,38 @@ void ProcessThread::run() {
 
 struct BatchThread::Impl {
     Inference* inferencer;
-    std::string inputDir;
+    std::vector<std::string> inputFiles;
     std::string outputDir;
 
-    Impl(Inference* inf, const std::string& inDir, const std::string& outDir)
-        : inferencer(inf), inputDir(inDir), outputDir(outDir) {}
+    Impl(Inference* inf, const QStringList& files, const std::string& outDir)
+        : inferencer(inf), outputDir(outDir) {
+        inputFiles.reserve(files.size());
+        for (const QString& file : files) {
+            inputFiles.push_back(file.toStdString());
+        }
+    }
 };
 
-BatchThread::BatchThread(Inference* inferencer, const QString& inputDir, const QString& outputDir)
-    : pImpl_(std::make_unique<Impl>(inferencer, inputDir.toStdString(), outputDir.toStdString())) {
+BatchThread::BatchThread(Inference* inferencer, const QStringList& inputFiles, const QString& outputDir)
+    : pImpl_(std::make_unique<Impl>(inferencer, inputFiles, outputDir.toStdString())) {
 }
 
 BatchThread::~BatchThread() = default;
 
 void BatchThread::run() {
     try {
-        pImpl_->inferencer->process_folder(pImpl_->inputDir, pImpl_->outputDir);
-        // 统计处理的文件数 (简单计算输出目录中的文件)
+        std::filesystem::create_directories(pImpl_->outputDir);
         int count = 0;
-        for (const auto& entry : std::filesystem::directory_iterator(pImpl_->outputDir)) {
-            if (entry.is_regular_file()) count++;
+        for (const std::string& inputPath : pImpl_->inputFiles) {
+            std::filesystem::path input(inputPath);
+            std::string ext = input.extension().string();
+            std::string outputPath =
+                (std::filesystem::path(pImpl_->outputDir) /
+                 (input.stem().string() + "_sr" + ext)).string();
+
+            if (pImpl_->inferencer->process_file(inputPath, outputPath)) {
+                ++count;
+            }
         }
         emit finished(count);
     } catch (const std::exception& e) {
@@ -150,6 +175,11 @@ void ImageLabel::clearImage() {
     setText("无图像");
 }
 
+void ImageLabel::setMaxDisplaySize(const QSize& maxSize) {
+    maxDisplaySize_ = maxSize;
+    updateDisplay();
+}
+
 void ImageLabel::resizeEvent(QResizeEvent* event) {
     QLabel::resizeEvent(event);
     updateDisplay();
@@ -158,8 +188,13 @@ void ImageLabel::resizeEvent(QResizeEvent* event) {
 void ImageLabel::updateDisplay() {
     if (pixmap_.isNull()) return;
 
+    QSize targetSize = size();
+    if (maxDisplaySize_.isValid()) {
+        targetSize = targetSize.boundedTo(maxDisplaySize_);
+    }
+
     QPixmap scaled = pixmap_.scaled(
-        size(),
+        targetSize,
         Qt::KeepAspectRatio,
         Qt::SmoothTransformation
     );
@@ -170,7 +205,7 @@ void ImageLabel::updateDisplay() {
 // ==================== MainWindow ====================
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
-    // 必须在 setupUI 之前加载配置
+    // 蹇呴』鍦?setupUI 涔嬪墠鍔犺浇閰嶇疆
     loadUIConfig();
 
     setupUI();
@@ -288,8 +323,12 @@ void MainWindow::setupUI() {
 
     // 输入图像
     QGroupBox* inputGroup = new QGroupBox("输入图像 (低分辨率)");
+    inputGroup->setMinimumWidth(240);
     QVBoxLayout* inputLayout = new QVBoxLayout(inputGroup);
     inputLabel_ = new ImageLabel("点击\"打开图像\"选择图像");
+    inputLabel_->setMinimumSize(180, 180);
+    inputLabel_->setMaxDisplaySize(QSize(180, 180));
+    inputLabel_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     inputLayout->addWidget(inputLabel_);
     inputInfo_ = new QLabel("尺寸: -");
     inputLayout->addWidget(inputInfo_);
@@ -297,12 +336,17 @@ void MainWindow::setupUI() {
 
     // 输出图像
     QGroupBox* outputGroup = new QGroupBox("输出图像 (高分辨率)");
+    outputGroup->setMinimumWidth(520);
     QVBoxLayout* outputLayout = new QVBoxLayout(outputGroup);
     outputLabel_ = new ImageLabel("处理后的图像将显示在这里");
+    outputLabel_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     outputLayout->addWidget(outputLabel_);
     outputInfo_ = new QLabel("尺寸: -");
     outputLayout->addWidget(outputInfo_);
     splitter->addWidget(outputGroup);
+    splitter->setStretchFactor(0, 1);
+    splitter->setStretchFactor(1, 3);
+    splitter->setSizes({280, 720});
 
     mainLayout->addWidget(splitter, 1);
 
@@ -381,19 +425,25 @@ void MainWindow::openImage() {
 }
 
 void MainWindow::loadModel() {
-    // 搜索checkpoints目录: 先尝试exe目录, 再向上搜索
+    // 搜索 checkpoints 目录：优先 checkpoints/final，不存在则回退到 checkpoints。
+    // 先在 exe 目录尝试，再向上搜索。
     QString startDir;
     {
         QDir dir(QApplication::applicationDirPath());
-        if (QDir(dir.filePath("checkpoints")).exists()) {
-            startDir = dir.filePath("checkpoints");
-        } else {
+        auto findCheckpointDir = [&dir]() -> QString {
+            QDir finalDir(dir.filePath("checkpoints/final"));
+            if (finalDir.exists()) return finalDir.absolutePath();
+            QDir ckptDir(dir.filePath("checkpoints"));
+            if (ckptDir.exists()) return ckptDir.absolutePath();
+            return QString();
+        };
+
+        startDir = findCheckpointDir();
+        if (startDir.isEmpty()) {
             for (int i = 0; i < 5; ++i) {
                 if (!dir.cdUp()) break;
-                if (QDir(dir.filePath("checkpoints")).exists()) {
-                    startDir = dir.filePath("checkpoints");
-                    break;
-                }
+                startDir = findCheckpointDir();
+                if (!startDir.isEmpty()) break;
             }
         }
     }
@@ -402,7 +452,7 @@ void MainWindow::loadModel() {
         this,
         "选择模型文件",
         startDir,
-        "PyTorch模型 (*.pt *.pth);;所有文件 (*.*)"
+        "生成器模型 (generator_*.pt facesr_*.pt *.pth);;所有 PyTorch 文件 (*.pt *.pth);;所有文件 (*.*)"
     );
 
     if (!filePath.isEmpty()) {
@@ -410,6 +460,9 @@ void MainWindow::loadModel() {
         QApplication::processEvents();
 
         try {
+            // 使用 Auto 模式：有 CUDA 时使用 GPU，否则回退 CPU。
+            // GUI 目前没有 attention 开关，因此适合加载默认 A4 结构模型。
+            // 若权重来自 A5/CBAM，建议使用命令行 --attention 推理。
             // 使用Auto模式: 有GPU时自动启用GPU+CPU混合模式
             inferencer_ = std::make_unique<Inference>(
                 filePath.toStdString(), 4, DeviceType::Auto);
@@ -422,12 +475,20 @@ void MainWindow::loadModel() {
                 updateButtonStates();
                 updateStatus("模型加载成功: " + filePath);
             } else {
-                QMessageBox::critical(this, "错误", "模型加载失败");
+                static const QString kLoadHint =
+                    "模型加载失败。可能原因：\n\n"
+                    "1) 文件是判别器（discriminator_*.pt），GUI 只支持生成器。\n"
+                    "2) 文件是 A5/CBAM 注意力模型，GUI 默认不启用 attention。\n"
+                    "   请改用命令行：facesr_test --attention --model <文件>\n"
+                    "3) 文件结构与本项目 RRDBNet 不一致，或文件已损坏。\n\n"
+                    "推荐使用：checkpoints/final/facesr_a4_best_psnr28.6019.pt";
+                QMessageBox::critical(this, "模型加载失败", kLoadHint);
                 updateStatus("模型加载失败");
             }
         } catch (const std::exception& e) {
-            QMessageBox::critical(this, "错误",
-                QString("模型加载失败: %1").arg(e.what()));
+            QMessageBox::critical(this, "模型加载失败",
+                QString("加载过程抛出异常：%1\n\n"
+                        "建议改用 checkpoints/final/facesr_a4_best_psnr28.6019.pt").arg(e.what()));
             updateStatus("模型加载失败");
         }
     }
@@ -441,6 +502,8 @@ void MainWindow::processImage() {
     progressBar_->setValue(0);
     updateStatus("正在处理...");
 
+    // 后台线程持有 inferencer_ 的裸指针，但 MainWindow 持有 unique_ptr 生命周期。
+    // 处理期间按钮会被禁用，避免用户重复启动推理造成并发访问。
     processThread_ = new ProcessThread(inferencer_.get(), inputPixmap_);
     connect(processThread_, &ProcessThread::finished,
             this, &MainWindow::onProcessFinished);
@@ -502,22 +565,57 @@ void MainWindow::batchProcess() {
         return;
     }
 
-    QString inputDir = QFileDialog::getExistingDirectory(
-        this, "选择输入文件夹", "");
-    if (inputDir.isEmpty()) return;
+    const QStringList modes = {
+        "选择图片文件",
+        "选择图片文件夹"
+    };
+    bool ok = false;
+    const QString mode = QInputDialog::getItem(
+        this, "批量处理", "输入来源:", modes, 0, false, &ok);
+    if (!ok || mode.isEmpty()) return;
 
-    QString outputDir = QFileDialog::getExistingDirectory(
+    QStringList inputFiles;
+    const QString imageFilter =
+        "图像文件 (*.jpg *.jpeg *.png *.bmp *.tiff);;所有文件 (*.*)";
+
+    if (mode == modes.first()) {
+        inputFiles = QFileDialog::getOpenFileNames(
+            this, "选择输入图片", "", imageFilter);
+        if (inputFiles.isEmpty()) return;
+    } else {
+        const QString inputDir = QFileDialog::getExistingDirectory(
+            this, "选择输入文件夹", "");
+        if (inputDir.isEmpty()) return;
+
+        const QSet<QString> supportedExtensions = {
+            ".jpg", ".jpeg", ".png", ".bmp", ".tiff"
+        };
+        const QFileInfoList entries =
+            QDir(inputDir).entryInfoList(QDir::Files | QDir::Readable, QDir::Name);
+        for (const QFileInfo& entry : entries) {
+            const QString ext = "." + entry.suffix().toLower();
+            if (supportedExtensions.contains(ext)) {
+                inputFiles.push_back(entry.absoluteFilePath());
+            }
+        }
+    }
+
+    if (inputFiles.isEmpty()) {
+        QMessageBox::warning(this, "警告", "没有找到可处理的图片文件");
+        return;
+    }
+
+    const QString outputDir = QFileDialog::getExistingDirectory(
         this, "选择输出文件夹", "");
     if (outputDir.isEmpty()) return;
 
-    // 禁用按钮, 在后台线程中执行批量处理
     btnBatch_->setEnabled(false);
     btnProcess_->setEnabled(false);
     progressBar_->setVisible(true);
-    progressBar_->setRange(0, 0);  // 不确定进度, 显示忙碌动画
+    progressBar_->setRange(0, 0);
     updateStatus("正在批量处理...");
 
-    auto* batchThread = new BatchThread(inferencer_.get(), inputDir, outputDir);
+    auto* batchThread = new BatchThread(inferencer_.get(), inputFiles, outputDir);
     connect(batchThread, &BatchThread::finished,
             this, &MainWindow::onBatchFinished);
     connect(batchThread, &BatchThread::error,
@@ -533,7 +631,7 @@ void MainWindow::onBatchFinished(int count) {
     progressBar_->setVisible(false);
     progressBar_->setRange(0, 100);
     updateButtonStates();
-    updateStatus(QString("批量处理完成, 共处理 %1 张图像").arg(count));
+    updateStatus(QString("批量处理完成，共处理 %1 张图像").arg(count));
     QMessageBox::information(this, "成功",
         QString("批量处理完成!\n共处理 %1 张图像").arg(count));
 }
@@ -564,13 +662,13 @@ void MainWindow::showAbout() {
     QMessageBox::about(this, "关于",
         "<h2>超分辨率人脸图像重建系统</h2>"
         "<p>版本: 1.1.0 (C++)</p>"
-        "<p>基于LibTorch和Qt开发</p>"
+        "<p>基于 LibTorch 和 Qt 开发</p>"
         "<p>功能特点:</p>"
         "<ul>"
         "<li>4倍超分辨率放大</li>"
         "<li>RRDB生成器网络</li>"
         "<li>GPU+CPU混合流水线加速</li>"
-        "<li>三阶段并行: CPU预处理 → GPU推理 → CPU后处理</li>"
+        "<li>三阶段并行：CPU预处理 -> GPU推理 -> CPU后处理</li>"
         "<li>批量处理功能</li>"
         "</ul>"
         "<p>作者: Encounter01</p>"
@@ -595,8 +693,8 @@ void MainWindow::applyTheme() {
         return;
     }
 
-    // 应用主题到整个窗口（如果需要的话可以在这里添加全局样式）
-    // 目前主题色主要应用在按钮上，已在 setupUI 中处理
+    // 应用主题到整个窗口（如果需要的话可以在这里添加全局样式）。
+    // 目前主题色主要应用在按钮上，已在 setupUI 中处理。
 }
 
 void MainWindow::resizeEvent(QResizeEvent* event) {

@@ -23,6 +23,13 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
+# MSVC 全局编译选项：/utf-8 让 MSVC 把源码和执行字符集都当作 UTF-8 处理，
+# 避免 UTF-8 中文注释/字符串被误判为 GBK 码页（C4819 警告 + 后续 C2143/C2065 报错）。
+# 这是项目源码全部使用 UTF-8 的前提下必须设置的编译选项，与 Release/Debug 无关。
+if(MSVC)
+    add_compile_options(/utf-8)
+endif()
+
 # Release模式编译优化选项
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     if(MSVC)

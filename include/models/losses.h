@@ -4,6 +4,12 @@
  * @brief 损失函数模块
  *
  * 包含用于人脸超分辨率重建的各种损失函数
+ *
+ * 论文对应关系：
+ * - PixelLoss：第一阶段使用，保证 SR 与 HR 在像素层面接近。
+ * - PerceptualLoss：第二阶段加入，用 VGG 特征约束纹理和局部结构。
+ * - GANLoss：第三阶段加入，让生成结果在判别器看来更接近真实 HR 图像。
+ * - CombinedLoss：训练器通过 use_perceptual/use_gan 开关把三阶段策略落到实际 loss 计算中。
  */
 
 #include <torch/torch.h>
@@ -44,6 +50,9 @@ private:
 
 /**
  * @brief VGG特征提取器 (用于感知损失)
+ *
+ * 这里不是训练一个新的分类器，而是把 VGG 的中间特征当作感知空间。
+ * VGG 参数会被冻结，只提供特征差异度量。
  */
 class VGGFeatureExtractor : public torch::nn::Module {
 public:
@@ -103,6 +112,9 @@ private:
 
 /**
  * @brief GAN对抗损失
+ *
+ * 当前代码支持多种 GAN loss 形式。需要注意：GANType::WGAN_GP 在这里按 WGAN 形式计算，
+ * 真实的 GP 项并未在 GANLoss 内实现；训练器中另有可选的 R1 penalty。
  */
 class GANLoss : public torch::nn::Module {
 public:
@@ -150,6 +162,9 @@ private:
 
 /**
  * @brief 组合损失
+ *
+ * 返回 map 的原因是训练日志需要分别打印 pixel/perceptual/gan/total，
+ * 这样能在调试三阶段训练时观察每一项是否按预期启用。
  */
 class CombinedLoss : public torch::nn::Module {
 public:

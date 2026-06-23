@@ -2,6 +2,11 @@
 /**
  * @file image_utils.h
  * @brief 图像处理工具
+ *
+ * 这个模块专门处理 OpenCV 和 LibTorch 的边界：
+ * - OpenCV: BGR, HWC, uint8, [0,255]
+ * - 模型: RGB, BCHW/CHW, float32, [0,1]
+ * 训练、验证、推理和 GUI 都会经过这些转换，颜色通道和维度顺序必须保持一致。
  */
 
 #include <torch/torch.h>

@@ -1,6 +1,9 @@
 /**
  * @file image_utils.cpp
  * @brief 图像处理工具实现
+ *
+ * 这里的函数看似简单，但它们决定了训练、验证和推理的输入输出口径。
+ * 如果 RGB/BGR、HWC/BCHW 或 [0,255]/[0,1] 任一环节不一致，模型效果会明显异常。
  */
 
 #include "utils/image_utils.h"
@@ -12,6 +15,7 @@ namespace facesr {
 namespace utils {
 
 cv::Mat tensor_to_mat(torch::Tensor tensor) {
+    // 该函数用于把模型输出转回 OpenCV 图像，常见调用点是推理保存和验证对比图。
     // 确保在CPU上
     tensor = tensor.detach().cpu();
 
@@ -47,6 +51,8 @@ cv::Mat tensor_to_mat(torch::Tensor tensor) {
 }
 
 torch::Tensor mat_to_tensor(const cv::Mat& img, bool is_bgr) {
+    // 推理入口通常传入 OpenCV imread 得到的 BGR 图像；
+    // Dataset 内部则另有 RGB 路径，所以这里用 is_bgr 明确输入颜色空间。
     cv::Mat rgb_img;
     if (is_bgr) {
         cv::cvtColor(img, rgb_img, cv::COLOR_BGR2RGB);
@@ -96,6 +102,7 @@ torch::Tensor load_image_tensor(const std::string& path, int target_size) {
 }
 
 cv::Mat create_comparison_image(torch::Tensor lr, torch::Tensor sr, torch::Tensor hr) {
+    // 验证阶段保存 LR/SR/HR 横向对比图，方便论文视觉分析和训练过程排查。
     // 转换为Mat
     cv::Mat lr_mat = tensor_to_mat(lr);
     cv::Mat sr_mat = tensor_to_mat(sr);

@@ -4,6 +4,9 @@
  * @brief 线程安全的随机数生成器
  *
  * 提供可复现的、线程安全的随机数生成功能
+ *
+ * Dataset 的 DataLoader 可能使用多个 worker 线程。
+ * 这里用 thread_local 为每个线程维护独立随机数生成器，避免数据增强时共享全局 RNG 造成竞争。
  */
 
 #include <random>

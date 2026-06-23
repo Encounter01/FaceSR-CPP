@@ -13,6 +13,12 @@
 //      - perceptual_loss = L1(VGG(SR), VGG(HR))  [可选]
 //      - gan_loss = BCE(D(SR), 1)                  [可选]
 //      - G_loss = pixel_w * pixel + perc_w * perceptual + gan_w * gan
+//
+// 论文对应关系：
+// - 阶段1：只训练 G 的像素重建能力，不更新 D。
+// - 阶段2：加入 VGG 感知损失，仍不更新 D。
+// - 阶段3：加入 D 和 GAN 损失，进入完整对抗训练。
+// 这种安排是为了先让生成器学会稳定的 LR->HR 映射，再逐步追求纹理真实感。
 // ============================================================================
 
 #include "trainer.h"
@@ -117,7 +123,9 @@ Trainer::Trainer(const TrainConfig& config)
         discriminator_->parameters(),
         torch::optim::AdamOptions(config_.lr_d).betas({0.9, 0.99}));
 
-    // 构建数据加载器
+    // 构建数据加载器。
+    // FaceSRDataset 返回单样本 LR/HR，Stack<> 会堆叠成 [B,3,64,64] 和 [B,3,256,256]。
+    // train_lr_dir 为空时，Dataset 会在线从 HR 生成 Bicubic LR，这与论文受控退化实验一致。
     // 1. 创建FaceSRDataset（启用数据增强）
     auto dataset = utils::FaceSRDataset(config_.train_hr_dir, config_.train_lr_dir,
                                   config_.hr_size, config_.lr_size, true)
@@ -144,6 +152,8 @@ Trainer::Trainer(const TrainConfig& config)
 // - Full: (true, true) — 像素 + 感知 + GAN损失
 // ============================================================================
 std::tuple<bool, bool> Trainer::get_training_phase(int epoch) const {
+    // 返回值的两个 bool 分别控制 CombinedLoss 是否计算感知损失和 GAN 损失。
+    // 判别器训练也复用 use_gan 开关，因此前两个阶段不会更新判别器。
     if (epoch < config_.phase1_epochs) {
         return {false, false};  // 阶段1: 仅像素损失
     } else if (epoch < config_.phase2_epochs) {
@@ -162,7 +172,8 @@ double Trainer::train_epoch(int epoch) {
     generator_->train();      // 设置生成器为训练模式（启用Dropout/BN训练行为）
     discriminator_->train();  // 设置判别器为训练模式
 
-    // 获取当前阶段的损失开关
+    // 获取当前阶段的损失开关。
+    // 这是训练逻辑的分水岭：前两阶段只更新生成器，第三阶段才训练判别器。
     auto [use_perceptual, use_gan] = get_training_phase(epoch);
 
     AverageMeter loss_meter;  // 记录平均损失
@@ -182,10 +193,14 @@ double Trainer::train_epoch(int epoch) {
         // 第1步: 训练判别器 D
         // 目标: 让D能正确区分真实HR图像和生成的SR图像
         // ================================================================
+        // 前两个阶段不训练判别器。这样做可以避免生成器还没学会基本重建时，
+        // 判别器过早变强导致 GAN 梯度不稳定。
         // Keep pixel/perceptual-only phases from updating the discriminator.
         if (use_gan) {
             optimizer_d_->zero_grad();
 
+            // 训练 D 时只需要 SR 图像本身，不需要把梯度传回 G。
+            // 因此这里用 NoGradGuard 生成 SR，后面还会 detach。
             // Generate SR without generator gradients for discriminator training.
             torch::Tensor sr_for_d;
             {
@@ -201,12 +216,15 @@ double Trainer::train_epoch(int epoch) {
             auto disc_real = discriminator_->forward(real_images);
             auto loss_real = models::GANLoss(config_.gan_type).forward(disc_real, true, true);
 
+            // detach 确保这一步只更新判别器，不影响生成器参数。
             // Detach SR so discriminator updates do not backprop into G.
             auto disc_fake = discriminator_->forward(sr_for_d.detach());
             auto loss_fake = models::GANLoss(config_.gan_type).forward(disc_fake, false, true);
 
             auto d_loss = (loss_real + loss_fake) * 0.5;
 
+            // R1 penalty 只在对抗阶段有意义，用来约束判别器对真实图像的梯度。
+            // 它不是 WGAN-GP 的梯度惩罚，而是另一种 GAN 稳定化项。
             // R1 penalty is only meaningful during adversarial training.
             if (config_.r1_weight > 0.0) {
                 auto grad_outputs = torch::ones_like(disc_real);
@@ -241,7 +259,8 @@ double Trainer::train_epoch(int epoch) {
             disc_pred_fake = discriminator_->forward(sr);
         }
 
-        // 计算组合损失
+        // 计算组合损失。
+        // use_perceptual/use_gan 会决定 total 中是否包含 VGG 感知项和生成器对抗项。
         auto losses = loss_fn_.forward(sr, hr_data, disc_pred_fake,
                                        use_perceptual, use_gan);
 
@@ -275,6 +294,7 @@ double Trainer::validate(int epoch) {
 
     utils::MetricCalculator metrics;
 
+    // 验证集不做数据增强，batch_size 固定为 1，保证 PSNR/SSIM 和保存的可视化样本可复现。
     // 创建验证数据集（无数据增强，batch_size=1）
     auto val_dataset = utils::FaceSRDataset(config_.val_hr_dir, config_.val_lr_dir,
                                       config_.hr_size, config_.lr_size, false)
@@ -294,7 +314,8 @@ double Trainer::validate(int epoch) {
         auto lr_data = batch.data.to(device_);
         auto hr_data = batch.target.to(device_);
 
-        // NoGradGuard: 验证时不需要计算梯度，节省内存和计算
+        // NoGradGuard: 验证时不需要计算梯度，节省内存和计算。
+        // 验证阶段只评估生成器，不涉及判别器和损失反传。
         torch::Tensor sr;
         {
             torch::NoGradGuard no_grad;
@@ -304,7 +325,8 @@ double Trainer::validate(int epoch) {
         // clamp到[0,1]（生成器输出可能略超出范围）
         sr = sr.clamp(0.0, 1.0);
 
-        // 计算PSNR和SSIM
+        // 计算 PSNR 和 SSIM。
+        // 论文正式表格必须用同一批 SR 输出和同一套指标脚本/函数计算，避免混用旧结果。
         metrics.update(sr, hr_data);
 
         // 保存第一张验证结果的对比图（LR vs SR vs HR）
@@ -427,7 +449,7 @@ int Trainer::load_training_state(double& best_psnr) {
     LOG_INFO("Training state loaded: epoch=", epoch,
              ", best_psnr=", best_psnr, ", global_step=", global_step_);
 
-    // 加载优化���状态
+    // 加载优化器状态，恢复 Adam 的动量和二阶矩缓存，避免续训时优化状态丢失。
     try {
         std::string opt_g_path = config_.checkpoint_dir + "/optimizer_g_state.pt";
         std::string opt_d_path = config_.checkpoint_dir + "/optimizer_d_state.pt";

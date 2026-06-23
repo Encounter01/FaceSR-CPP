@@ -4,6 +4,11 @@
  * @brief 全局配置、常量和枚举定义
  *
  * 集中管理项目中的常量和类型定义，避免魔法数字
+ *
+ * 阅读提示：
+ * 1. 先看 constants 中的尺寸、损失权重和 RRDB 参数，它们决定论文中 64x64 -> 256x256 的 4 倍超分主线。
+ * 2. 再看 PixelLossType、GANType、TrainingPhase 等枚举，它们和配置文件中的字符串互相转换。
+ * 3. 部分常量是后续扩展预留项，例如频域损失、梯度损失、学习率调度器和 Hybrid 流水线；当前核心训练路径主要使用像素、感知和 GAN 损失。
  */
 
 #include <string>
@@ -40,11 +45,14 @@ namespace constants {
     constexpr int DEFAULT_NUM_EPOCHS = 300;
     constexpr double DEFAULT_LEARNING_RATE = 2e-4;
 
-    // 训练阶段epoch边界
+    // 训练阶段 epoch 边界。
+    // 论文中的三阶段训练由这两个边界控制：
+    // 0~49 轮只学习像素级 LR->HR 映射，50~149 轮加入 VGG 感知约束，150 轮后进入完整 GAN 训练。
     constexpr int PHASE1_END_EPOCH = 50;    // 像素损失阶段结束
     constexpr int PHASE2_END_EPOCH = 150;   // 感知损失阶段结束
 
-    // 损失权重默认值
+    // 损失权重默认值。
+    // 频域损失和梯度损失目前只是配置层预留，CombinedLoss 当前不会实际计算这两项。
     constexpr double DEFAULT_PIXEL_WEIGHT = 1.0;
     constexpr double DEFAULT_PERCEPTUAL_WEIGHT = 1.0;
     constexpr double DEFAULT_GAN_WEIGHT = 0.1;
@@ -59,7 +67,8 @@ namespace constants {
     // VGG特征提取层
     constexpr int DEFAULT_VGG_FEATURE_LAYER = 35;
 
-    // RRDB网络参数
+    // RRDB 网络参数。
+    // 默认 23 个 RRDB 块、64 个主干通道、32 个增长通道，对应论文中采用的 ESRGAN 风格生成器主干。
     constexpr int RRDB_NUM_FEATURES = 64;
     constexpr int RRDB_NUM_BLOCKS = 23;
     constexpr int RRDB_GROWTH_CHANNELS = 32;
@@ -114,7 +123,7 @@ enum class GANType {
     Vanilla,    // 原始GAN (BCE损失)
     LSGAN,      // 最小二乘GAN
     WGAN,       // Wasserstein GAN
-    WGAN_GP,    // 带梯度惩罚的WGAN
+    WGAN_GP,    // 带梯度惩罚的WGAN；当前 GANLoss 中按 WGAN 形式计算，GP 项未在这里实现
     Hinge       // Hinge损失GAN
 };
 
@@ -144,7 +153,7 @@ enum class DeviceType {
     CPU,
     CUDA,
     Auto,   // 自动选择 (优先GPU)
-    Hybrid  // GPU+CPU协同: GPU执行模型推理, CPU执行预处理/后处理/IO
+    Hybrid  // GPU+CPU协同概念；当前命令行推理主要按 CUDA/CPU 顺序执行，完整流水线是预留扩展
 };
 
 /**

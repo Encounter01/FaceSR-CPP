@@ -1,6 +1,11 @@
 /**
  * @file losses.cpp
  * @brief 损失函数模块实现
+ *
+ * 读这个文件时建议按训练阶段理解：
+ * 1. PixelLoss 是所有阶段都启用的基础重建约束。
+ * 2. PerceptualLoss 在第二阶段开始启用，比较 VGG 特征而不是直接比较像素。
+ * 3. GANLoss 在第三阶段启用，使用判别器输出参与生成器和判别器的对抗目标。
  */
 
 #include "models/losses.h"
@@ -24,6 +29,7 @@ PixelLoss::PixelLoss(const std::string& loss_type)
 }
 
 torch::Tensor PixelLoss::forward(torch::Tensor pred, torch::Tensor target) {
+    // L1 对异常像素不如 L2 敏感，超分辨率中常用于保持整体结构并减少过度平滑。
     switch (loss_type_) {
         case PixelLossType::L1:
             return F::l1_loss(pred, target);
@@ -91,6 +97,8 @@ void VGGFeatureExtractor::initImageNetNorm() {
 
 torch::Tensor VGGFeatureExtractor::forward(torch::Tensor x) {
     if (use_input_norm_) {
+        // 预训练 VGG 通常以 ImageNet 均值/方差标准化后的 RGB 图像作为输入。
+        // 这里的标准化保证感知损失的特征尺度和 VGG 训练时一致。
         x = (x - mean_) / std_;
     }
     return features_->forward(x);
@@ -98,6 +106,8 @@ torch::Tensor VGGFeatureExtractor::forward(torch::Tensor x) {
 
 void VGGFeatureExtractor::load_pretrained(const std::string& weight_path) {
     try {
+        // 项目使用 LibTorch 自建 VGG 特征提取器。加载 TorchScript 权重时，
+        // 按顺序把 JIT 模型里的卷积参数拷贝到当前 features_，避免依赖 Python 运行时。
         // 加载 TorchScript 模型，按顺序提取卷积层权重到自建的 features_ 中
         auto jit_module = torch::jit::load(weight_path);
         jit_module.eval();
@@ -163,6 +173,8 @@ torch::Tensor PerceptualLoss::forward(torch::Tensor pred, torch::Tensor target) 
     auto pred_feat = vgg_->forward(pred);
     auto target_feat = vgg_->forward(target);
 
+    // 感知损失比较的是特征图差异。它允许像素有轻微偏移，
+    // 但会惩罚纹理、边缘和语义结构在深层特征空间中的不一致。
     switch (loss_type_) {
         case PixelLossType::L1:
             return F::l1_loss(pred_feat, target_feat);
@@ -203,6 +215,8 @@ torch::Tensor GANLoss::computeLSGANLoss(torch::Tensor input, torch::Tensor targe
 }
 
 torch::Tensor GANLoss::computeWGANLoss(torch::Tensor input, bool target_is_real) {
+    // WGAN 的目标直接使用判别器/critic 分数均值。
+    // 这里没有实现 WGAN-GP 的梯度惩罚项，GANType::WGAN_GP 会和 WGAN 共用该计算路径。
     return target_is_real ? -input.mean() : input.mean();
 }
 
@@ -273,6 +287,10 @@ std::map<std::string, torch::Tensor> CombinedLoss::forward(
     std::map<std::string, torch::Tensor> losses;
     auto device = pred.device();
 
+    // 三阶段训练的核心就在这里：
+    // - use_perceptual=false, use_gan=false：只返回像素损失；
+    // - use_perceptual=true,  use_gan=false：加入 VGG 感知损失；
+    // - use_perceptual=true,  use_gan=true ：再加入生成器的对抗损失。
     // 像素损失
     losses["pixel"] = pixel_loss_->forward(pred, target) * pixel_weight_;
 

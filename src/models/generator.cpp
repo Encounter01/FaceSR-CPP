@@ -1,6 +1,11 @@
 /**
  * @file generator.cpp
  * @brief RRDB生成器网络实现
+ *
+ * 阅读顺序：
+ * 1. ResidualDenseBlockImpl::forward()：看密集连接如何把 x、x1、x2... 按通道拼接。
+ * 2. RRDBImpl::forward()：看 3 个 RDB 如何叠加成“残差中的残差”。
+ * 3. RRDBNetImpl::forward()：看完整 4 倍超分流程如何从 LR 特征到 SR 图像。
  */
 
 #include "models/generator.h"
@@ -24,7 +29,9 @@ ResidualDenseBlockImpl::ResidualDenseBlockImpl(int num_feat, int num_grow_ch) {
     conv5_ = register_module("conv5",
         torch::nn::Conv2d(torch::nn::Conv2dOptions(num_feat + 4 * num_grow_ch, num_feat, 3).padding(1)));
 
-    // 初始化权重
+    // 初始化权重。
+    // Kaiming 初始化适配 LeakyReLU；最后一层零初始化让 RDB 初始时近似恒等映射，
+    // 这样深层残差块刚开始训练时不会过早扰动主干特征。
     for (auto& module : modules(false)) {
         if (auto* conv = module->as<torch::nn::Conv2dImpl>()) {
             torch::nn::init::kaiming_normal_(
@@ -39,13 +46,16 @@ ResidualDenseBlockImpl::ResidualDenseBlockImpl(int num_feat, int num_grow_ch) {
 }
 
 torch::Tensor ResidualDenseBlockImpl::forward(torch::Tensor x) {
+    // RDB 的关键是“密集连接”：后续卷积层不只接收上一层输出，
+    // 还接收原始输入和所有前面层的输出。这样浅层边缘、局部纹理和深层语义特征能被反复复用。
     auto x1 = F::leaky_relu(conv1_(x), F::LeakyReLUFuncOptions().negative_slope(0.2));
     auto x2 = F::leaky_relu(conv2_(torch::cat({x, x1}, 1)), F::LeakyReLUFuncOptions().negative_slope(0.2));
     auto x3 = F::leaky_relu(conv3_(torch::cat({x, x1, x2}, 1)), F::LeakyReLUFuncOptions().negative_slope(0.2));
     auto x4 = F::leaky_relu(conv4_(torch::cat({x, x1, x2, x3}, 1)), F::LeakyReLUFuncOptions().negative_slope(0.2));
     auto x5 = conv5_(torch::cat({x, x1, x2, x3, x4}, 1));
 
-    // 残差连接
+    // 残差缩放后再加回输入。0.2 是 ESRGAN/RRDB 中常用的稳定训练技巧，
+    // 论文中也用它解释深层网络避免数值震荡的原因。
     return x5 * beta_ + x;
 }
 
@@ -129,20 +139,23 @@ void RRDBNetImpl::init_weights() {
 }
 
 torch::Tensor RRDBNetImpl::forward(torch::Tensor x) {
-    // 浅层特征
+    // 浅层特征：把 RGB 图像映射到 64 通道特征空间，后续 RRDB 都在该特征空间内工作。
     auto feat = conv_first_(x);
 
-    // RRDB主干
+    // RRDB 主干：论文中的核心特征提取部分。
+    // conv_body 后与浅层特征做全局残差，保证网络主要学习 LR 到 HR 之间缺失的高频增量。
     auto body_feat = conv_body_(body_->forward(feat));
 
     // 全局残差连接
     feat = feat + body_feat;
 
     if (attention_) {
+        // CBAM 只在启用 attention 的模型中生效；推理时该开关必须和训练 checkpoint 匹配。
         feat = attention_(feat);
     }
 
-    // 上采样 (使用最近邻插值 + 卷积)
+    // 上采样使用“最近邻插值 + 卷积”，不是反卷积。
+    // 这样实现简单稳定，也避免转置卷积在超分辨率中常见的棋盘格伪影。
     feat = F::interpolate(feat, F::InterpolateFuncOptions()
         .scale_factor(std::vector<double>{2.0, 2.0})
         .mode(torch::kNearest));

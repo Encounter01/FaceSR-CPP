@@ -5,7 +5,12 @@
 //   facesr_train --config config/train_config.ini
 //   facesr_train --train-hr data/train/hr --batch-size 8 --epochs 100
 //   facesr_train --resume checkpoints              (从目录恢复)
-//   facesr_train --resume checkpoints/generator_latest.pt  (从文件恢复)
+//   facesr_train --resume checkpoints/legacy/generator_latest.pt  (从文件恢复)
+//
+// 入口职责：
+// - 解析命令行或 INI 配置，得到 TrainConfig。
+// - 注册 Ctrl+C 安全中断，让 Trainer 有机会保存状态。
+// - 真正的训练逻辑在 Trainer 中，这里只负责组装和启动。
 // ============================================================================
 
 #include "trainer.h"
@@ -77,7 +82,8 @@ int main(int argc, char* argv[]) {
     facesr::TrainConfig config;   // 创建默认训练配置
     std::string resume_path = ""; // 恢复训练的检查点路径
 
-    // 解析命令行参数
+    // 解析命令行参数。
+    // 命令行参数优先级高于默认 TrainConfig；--config 可一次性加载论文实验配置。
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
 
@@ -124,7 +130,8 @@ int main(int argc, char* argv[]) {
     LOG_INFO("Epochs: ", config.num_epochs);
     LOG_INFO("Learning rate: ", config.lr_g);
 
-    // 创建Trainer实例并开始训练
+    // 创建 Trainer 实例并开始训练。
+    // resume_path 可以是 checkpoint 文件或目录，具体恢复策略由 Trainer::load_checkpoint 处理。
     try {
         facesr::Trainer trainer(config);
         trainer.train(resume_path);

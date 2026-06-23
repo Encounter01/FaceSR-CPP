@@ -1,6 +1,9 @@
 /**
  * @file style_config.cpp
  * @brief UI样式配置管理实现
+ *
+ * 配置文件使用 Qt 的 QSettings 读取，路径会从可执行文件目录向上搜索，
+ * 这样从 build/bin 运行 GUI 时也能找到仓库里的 config/ui_config.ini。
  */
 
 #include "gui/style_config.h"
@@ -56,6 +59,8 @@ void StyleConfig::loadDefaults() {
 }
 
 bool StyleConfig::loadFromFile(const QString& filePath) {
+    // 支持相对路径配置。Qt 程序常从构建输出目录启动，
+    // 因此需要向上查找，避免只能在仓库根目录运行。
     // 构建完整路径
     QString fullPath = filePath;
     if (QFileInfo(filePath).isRelative()) {

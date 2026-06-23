@@ -5,6 +5,8 @@ namespace F = torch::nn::functional;
 
 namespace facesr {
 
+// 通道注意力关注“哪些特征通道更重要”。
+// 平均池化提供整体响应，最大池化保留强响应，两路结果共享 MLP 后相加得到通道权重。
 ChannelAttentionImpl::ChannelAttentionImpl(int num_channels, int reduction)
     : num_channels_(num_channels) {
     int mid = std::max(1, num_channels / reduction);
@@ -21,6 +23,8 @@ torch::Tensor ChannelAttentionImpl::forward(torch::Tensor x) {
     return scale.view({x.size(0), num_channels_, 1, 1});
 }
 
+// 空间注意力关注“图像空间中哪些位置更重要”。
+// 沿通道做平均/最大聚合后拼接，再通过一个卷积得到 HxW 的空间权重图。
 SpatialAttentionImpl::SpatialAttentionImpl(int kernel_size) {
     conv_ = register_module("conv", torch::nn::Conv2d(
         torch::nn::Conv2dOptions(2, 1, kernel_size)
@@ -40,6 +44,8 @@ CBAMImpl::CBAMImpl(int num_channels, int reduction, int kernel_size) {
 }
 
 torch::Tensor CBAMImpl::forward(torch::Tensor x) {
+    // CBAM 的标准顺序是 channel -> spatial。这里直接乘回原特征，
+    // 因此输入输出尺寸不变，可以无缝插在 RRDB 主干和上采样模块之间。
     x = x * channel_att_(x);
     x = x * spatial_att_(x);
     return x;

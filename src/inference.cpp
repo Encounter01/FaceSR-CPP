@@ -5,6 +5,10 @@
 // - 不需要梯度计算（NoGradGuard）
 // - 不需要判别器和损失函数
 // - 使用eval()模式（BatchNorm使用训练时的滑动统计量）
+//
+// 论文对应关系：
+// - 最终部署只使用 A4 三阶段训练得到的 generator_best 权重。
+// - 如果模型结构启用了 CBAM，命令行必须用 --attention 创建相同结构；默认 GUI 适合无 attention 的 A4 模型。
 // ============================================================================
 
 #include "inference.h"
@@ -26,6 +30,13 @@ static bool try_load_jit(const std::string& path, torch::jit::Module& out,
     try {
         out = torch::jit::load(path, device);
         out.eval();
+
+        // 加载成功不代表这个文件一定能接受本项目的 4x 人脸超分输入。
+        // 这里用一个 64x64 探测张量提前跑一次 forward，避免把不匹配的 TorchScript
+        // 误判为可用模型，然后在真正推理时才报错。
+        torch::NoGradGuard no_grad;
+        auto probe = torch::zeros({1, 3, 64, 64}, torch::TensorOptions().device(device));
+        (void)out.forward({probe}).toTensor();
         return true;
     } catch (...) {
         return false;
@@ -38,7 +49,8 @@ static bool try_load_jit(const std::string& path, torch::jit::Module& out,
 Inference::Inference(const std::string& model_path, int scale,
                      bool use_gpu, bool use_attention)
     : device_(torch::kCPU)
-    , scale_(scale) {
+    , scale_(scale)
+    , device_type_(use_gpu ? DeviceType::Auto : DeviceType::CPU) {
 
     if (use_gpu && torch::cuda::is_available()) {
         device_ = torch::Device(torch::kCUDA);
@@ -47,7 +59,8 @@ Inference::Inference(const std::string& model_path, int scale,
         LOG_INFO("Inference using CPU");
     }
 
-    // 先尝试 TorchScript 格式 (Python torch.jit.save 保存的)
+    // 先尝试 TorchScript 格式 (Python torch.jit.save 保存的)。
+    // 如果该路径不是 TorchScript，或结构不匹配 64x64 输入，try_load_jit 会失败并回退到 C++ RRDBNet。
     if (try_load_jit(model_path, jit_module_, device_)) {
         use_jit_ = true;
         model_loaded_ = true;
@@ -55,7 +68,8 @@ Inference::Inference(const std::string& model_path, int scale,
         return;
     }
 
-    // 回退到 LibTorch 原生格式 (C++ torch::save 保存的)
+    // 回退到 LibTorch 原生格式 (C++ torch::save 保存的)。
+    // 这里必须用和训练时一致的结构参数创建 RRDBNet，再加载权重。
     generator_ = RRDBNet(3, 3, constants::RRDB_NUM_FEATURES,
                          constants::RRDB_NUM_BLOCKS,
                          constants::RRDB_GROWTH_CHANNELS, scale,
@@ -120,6 +134,7 @@ cv::Mat Inference::process(const cv::Mat& input) {
         return {};
     }
 
+    // OpenCV 输入是 BGR/HWC/uint8，模型输入是 RGB/BCHW/float32/[0,1]。
     auto input_tensor = utils::mat_to_tensor(input);
     input_tensor = input_tensor.to(device_);
 
@@ -131,6 +146,8 @@ cv::Mat Inference::process(const cv::Mat& input) {
         } else {
             output = generator_->forward(input_tensor);
         }
+        // 生成器最后一层没有 sigmoid/tanh 约束，输出可能略超出 [0,1]；
+        // 保存图像和计算指标前统一裁剪到合法像素范围。
         output = output.clamp(0.0, 1.0);
     }
 
@@ -159,6 +176,19 @@ bool Inference::process_file(const std::string& input_path,
         return false;
     }
 
+    // Ensure explicit output directories exist before writing the image.
+    const fs::path output_fs_path(output_path);
+    const fs::path output_parent = output_fs_path.parent_path();
+    if (!output_parent.empty()) {
+        std::error_code ec;
+        fs::create_directories(output_parent, ec);
+        if (ec) {
+            LOG_ERROR("Failed to create output directory: ",
+                      output_parent.string(), " (", ec.message(), ")");
+            return false;
+        }
+    }
+
     // 保存结果
     bool success = cv::imwrite(output_path, result);
     if (success) {
@@ -176,6 +206,8 @@ bool Inference::process_file(const std::string& input_path,
 // ============================================================================
 int Inference::process_folder(const std::string& input_dir,
                               const std::string& output_dir) {
+    // 当前目录批处理是顺序逐张处理，逻辑简单、稳定，适合论文演示和结果生成。
+    // 头文件中预留的 Hybrid 流水线可作为后续性能优化方向。
     // 创建输出目录
     fs::create_directories(output_dir);
 
@@ -198,7 +230,8 @@ int Inference::process_folder(const std::string& input_dir,
 
         // 构建输出路径: 原始文件名 + "_sr" + 扩展名
         std::string filename = entry.path().stem().string();
-        std::string output_path = output_dir + "/" + filename + "_sr" + ext;
+        std::string output_path =
+            (fs::path(output_dir) / (filename + "_sr" + ext)).string();
 
         // 处理单张图像
         try {

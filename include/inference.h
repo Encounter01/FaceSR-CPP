@@ -7,6 +7,11 @@
  * - CPU模式: 所有计算在CPU上执行
  * - GPU模式: 所有计算在GPU上执行
  * - Hybrid模式: GPU执行模型推理, CPU并行处理图像IO和预处理/后处理
+ *
+ * 当前实现边界：
+ * - 单图和目录处理主路径是顺序执行的 CPU/CUDA 推理。
+ * - BoundedQueue、PipelineItem 和 Hybrid 相关接口是为后续流水线优化预留的结构。
+ * - 推理阶段只加载生成器或 TorchScript 模型，不加载判别器和损失函数。
  */
 
 #include <torch/torch.h>
@@ -81,6 +86,9 @@ struct PipelineItem {
 
 /**
  * @brief 推理器类 (支持GPU+CPU混合流水线)
+ *
+ * 典型数据流：
+ * cv::Mat(BGR) -> mat_to_tensor(RGB BCHW) -> RRDBNet/TorchScript -> clamp(0,1) -> tensor_to_mat(BGR)
  */
 class Inference {
 public:

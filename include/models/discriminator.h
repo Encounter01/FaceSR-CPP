@@ -5,6 +5,11 @@
 //
 // 作用: 判断输入的256x256图像是真实的高分辨率图像还是生成器生成的假图像
 //
+// 阅读提示：
+// - 判别器只在训练第三阶段参与，用来提供 GAN 对抗损失。
+// - 推理阶段不会加载判别器；最终应用只需要生成器。
+// - 本类输出 logits，不在 forward 末尾手动 sigmoid，具体损失函数会选择 BCEWithLogits、LSGAN、Hinge 等形式。
+//
 // 网络结构借鉴VGG网络设计:
 // - 5组卷积块，每组2个3x3卷积(一个stride=1，一个stride=2用于下采样)
 // - 通道数按 64→128→256→512→512 递增
@@ -27,7 +32,7 @@ public:
     // in_channels: 输入通道数（默认3, RGB图像）
     // num_feat: 第一组的特征通道数（默认64，后续组逐渐翻倍）
     // input_size: 输入图像尺寸（默认256x256，影响全连接层的输入维度）
-    // use_spectral_norm: 是否使用谱归一化替换BatchNorm（稳定GAN训练）
+    // use_spectral_norm: 谱归一化预留开关；当前实现保存该标志，但卷积层仍按普通 Conv2d + BatchNorm 构造
     VGGStyleDiscriminatorImpl(int in_channels = 3, int num_feat = 64,
                                int input_size = 256, bool use_spectral_norm = false);
 

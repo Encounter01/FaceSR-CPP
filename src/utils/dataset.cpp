@@ -1,6 +1,9 @@
 /**
  * @file dataset.cpp
  * @brief 数据集加载模块实现
+ *
+ * 本文件是训练数据入口。读代码时重点关注 get()：
+ * 它决定一个样本如何从磁盘图像变成训练器里的 LR/HR 张量对。
  */
 
 #include "utils/dataset.h"
@@ -92,12 +95,16 @@ cv::Mat FaceSRDataset::loadImage(const fs::path& path) {
     if (img.empty()) {
         throw std::runtime_error("Failed to load image: " + path.string());
     }
+    // OpenCV 读入默认是 BGR，而模型训练统一使用 RGB。
+    // 这个转换必须和 image_utils 中的推理转换保持一致，否则颜色通道会错位。
     // BGR to RGB
     cv::cvtColor(img, img, cv::COLOR_BGR2RGB);
     return img;
 }
 
 std::pair<cv::Mat, cv::Mat> FaceSRDataset::applyAugmentation(cv::Mat hr, cv::Mat lr) {
+    // 增强必须同时作用在 HR 和 LR 上，否则输入与标签会空间错位。
+    // 人脸超分辨率任务对眼睛、鼻子、嘴部结构位置敏感，因此这里不能分别随机增强。
     // 使用线程安全的随机数生成器
     auto& rng = RandomGenerator::getInstance();
 
@@ -120,6 +127,8 @@ std::pair<cv::Mat, cv::Mat> FaceSRDataset::applyAugmentation(cv::Mat hr, cv::Mat
 }
 
 torch::Tensor FaceSRDataset::matToTensor(const cv::Mat& img) {
+    // Dataset 内部的 Mat 已经是 RGB，因此这里只做数值归一化和 HWC->CHW 维度转换。
+    // clone() 很重要：from_blob 不拥有 OpenCV Mat 的内存，离开函数后必须复制出独立 Tensor。
     // 转换为float并归一化到[0, 1]
     cv::Mat float_img;
     img.convertTo(float_img, CV_32FC3, constants::NORMALIZE_SCALE);
@@ -138,12 +147,16 @@ torch::Tensor FaceSRDataset::matToTensor(const cv::Mat& img) {
 }
 
 torch::data::Example<> FaceSRDataset::get(size_t index) {
+    // 读取并构造成一个训练样本。
+    // 论文主线是受控 Bicubic 退化：如果没有单独 LR 目录，就直接从 HR 下采样得到 LR。
     // 加载HR图像
     cv::Mat hr_img = loadImage(hr_images_[index]);
 
     // 调整HR图像尺寸
     cv::resize(hr_img, hr_img, cv::Size(hr_size_, hr_size_), 0, 0, cv::INTER_CUBIC);
 
+    // 加载或生成 LR 图像。
+    // 有 LR 目录时优先读取同名文件；没有或同名文件不存在时，回退到 HR 的 Bicubic 下采样。
     // 加载或生成LR图像
     cv::Mat lr_img;
     if (!lr_dir_.empty()) {

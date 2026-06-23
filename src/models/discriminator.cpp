@@ -1,6 +1,10 @@
 /**
  * @file discriminator.cpp
  * @brief VGG风格判别器网络实现
+ *
+ * 判别器的阅读重点是空间尺寸变化：
+ * 256 -> 128 -> 64 -> 32 -> 16 -> 8，最后展平并输出一个真假分数。
+ * 它不负责重建图像，只在 GAN 阶段给生成器提供“更像真实 HR 图像”的训练信号。
  */
 
 #include "models/discriminator.h"
@@ -13,6 +17,8 @@ namespace facesr {
 VGGStyleDiscriminatorImpl::VGGStyleDiscriminatorImpl(int in_channels, int num_feat, int input_size, bool use_spectral_norm)
     : input_size_(input_size), use_spectral_norm_(use_spectral_norm) {
 
+    // 特征提取层按 VGG 风格堆叠。stride=2 的 4x4 卷积承担下采样，
+    // 逐步扩大感受野，让判别器从局部纹理到整体人脸结构都能参与真假判断。
     // 特征提取层
     conv0_0_ = register_module("conv0_0",
         torch::nn::Conv2d(torch::nn::Conv2dOptions(in_channels, num_feat, 3).padding(1).bias(true)));
@@ -48,6 +54,8 @@ VGGStyleDiscriminatorImpl::VGGStyleDiscriminatorImpl(int in_channels, int num_fe
         torch::nn::Conv2d(torch::nn::Conv2dOptions(num_feat * 8, num_feat * 8, 4).stride(2).padding(1).bias(false)));
     bn4_1_ = register_module("bn4_1", torch::nn::BatchNorm2d(num_feat * 8));
 
+    // 计算全连接层的输入尺寸。
+    // input_size=256 经过 5 次 2 倍下采样后变为 8x8，因此展平特征是 512*8*8。
     // 计算全连接层的输入尺寸
     // input_size=256 经过5次下采样后变为 256/32 = 8
     int fc_input_size = (input_size / 32) * (input_size / 32) * num_feat * 8;

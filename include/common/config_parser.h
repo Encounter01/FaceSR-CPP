@@ -4,6 +4,10 @@
  * @brief 配置文件解析器
  *
  * 支持简单的INI风格配置文件解析
+ *
+ * 本解析器只做轻量级 key-value 读取：
+ * [section] 下的 key 会保存成 "section.key"。
+ * TrainConfig 依赖这个约定把 config/train_config.ini 映射到结构体字段。
  */
 
 #include <string>

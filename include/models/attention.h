@@ -3,6 +3,10 @@
 
 namespace facesr {
 
+// CBAM (Convolutional Block Attention Module) 是可选增强模块。
+// 在本项目中它对应论文 A5 消融实验：先做通道注意力，再做空间注意力。
+// 注意：如果训练时启用了 CBAM，推理时也必须用相同结构加载权重；论文最终采用的 A4 模型默认不依赖它。
+
 class ChannelAttentionImpl : public torch::nn::Module {
 public:
     explicit ChannelAttentionImpl(int num_channels, int reduction = 16);

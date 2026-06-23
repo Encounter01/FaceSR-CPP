@@ -2,9 +2,14 @@
 // main_test.cpp — 推理程序入口
 //
 // 命令行用法:
-//   facesr_test --model checkpoints/generator_epoch190.pt --input photo.jpg --output result.jpg
+//   facesr_test --model checkpoints/final/facesr_a4_best_psnr28.6019.pt --input photo.jpg --output result.jpg
 //   facesr_test --model model.pt --input input_folder/ --output output_folder/
 //   facesr_test --model model.pt --input photo.jpg --scale 4 --cpu
+//
+// 入口职责：
+// - 加载训练好的生成器权重。
+// - 判断输入是单张图像还是目录。
+// - 调用 Inference 完成预处理、模型前向和结果保存。
 // ============================================================================
 
 #include "inference.h"
@@ -77,7 +82,8 @@ int main(int argc, char* argv[]) {
     }
 
     try {
-        // 创建推理器实例（加载模型权重）
+        // 创建推理器实例（加载模型权重）。
+        // --attention 必须和训练时的 use_attention 一致，否则 LibTorch 原生权重形状会不匹配。
         LOG_INFO("Loading model: ", model_path);
         facesr::Inference inferencer(model_path, scale, use_gpu, use_attention);
 
@@ -91,10 +97,12 @@ int main(int argc, char* argv[]) {
             // 如果未指定输出路径，自动生成: 原名_sr.ext
             if (output_path.empty()) {
                 auto p = fs::path(input_path);
-                output_path = p.parent_path().string() + "/" +
-                             p.stem().string() + "_sr" + p.extension().string();
+                output_path = (p.parent_path() /
+                               (p.stem().string() + "_sr" + p.extension().string())).string();
             }
-            inferencer.process_file(input_path, output_path);
+            if (!inferencer.process_file(input_path, output_path)) {
+                return 1;
+            }
         }
         else if (fs::is_directory(input_path)) {
             // 输入是目录，批量处理
@@ -103,6 +111,9 @@ int main(int argc, char* argv[]) {
             }
             int count = inferencer.process_folder(input_path, output_path);
             LOG_INFO("Processed ", count, " images");
+            if (count == 0) {
+                return 1;
+            }
         }
         else {
             LOG_ERROR("Input path does not exist: ", input_path);

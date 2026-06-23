@@ -6,6 +6,11 @@
 // 这是ESRGAN (Enhanced Super-Resolution GAN) 的核心生成器架构。
 // 网络结构: 输入(64x64) → 浅层特征 → 23个RRDB块 → 2次上采样 → 输出(256x256)
 //
+// 与论文的对应关系：
+// - 第4章“生成器网络设计”主要讲的就是本文件中的 ResidualDenseBlock、RRDB 和 RRDBNet。
+// - 论文最终模型 A4 使用三阶段训练，但推理阶段只需要这里的 RRDBNet 生成器，不需要判别器和损失函数。
+// - use_attention 对应 A5/CBAM 消融实验。当前论文结论中 A5 未优于 A4，因此默认结构保持无 attention。
+//
 // RRDB的设计思想:
 // 1. 密集连接(DenseNet): 每层都接收所有前面层的输出，最大化特征复用
 // 2. 残差学习(ResNet): 学习残差映射 F(x) = H(x) - x，比直接学H(x)更容易
@@ -55,7 +60,8 @@ TORCH_MODULE(ResidualDenseBlock);
 //
 // 由3个RDB串联组成，最后加残差连接。
 // "残差中的残差": RRDB本身是残差结构，其内部的RDB也是残差结构。
-// 这种嵌套残差设计允许网络非常深（23个RRDB = 23×3×5 = 345层卷积）
+// 这种嵌套残差设计允许网络非常深。
+// 注意：这里的“深”指特征变换路径足够长；实际卷积层数还要结合每个 RDB 的 5 层卷积和主干/上采样卷积理解。
 // ============================================================================
 class RRDBImpl : public torch::nn::Module {
 public:
@@ -92,7 +98,7 @@ public:
     // num_block: RRDB块数量（默认23，即网络深度，ESRGAN标准配置）
     // num_grow_ch: 密集块增长通道数（默认32）
     // scale: 放大倍数（默认4，即64→256）
-    // use_attention: 是否在RRDB body后插入CBAM注意力模块
+    // use_attention: 是否在RRDB body后插入CBAM注意力模块；必须和训练保存权重时的结构一致
     RRDBNetImpl(int in_channels = 3, int out_channels = 3,
                 int num_feat = 64, int num_block = 23,
                 int num_grow_ch = 32, int scale = 4,
@@ -114,7 +120,7 @@ private:
 
     // 网络各层:
     torch::nn::Conv2d conv_first_{nullptr};  // 输入层: 3通道RGB → 64特征通道
-    torch::nn::Sequential body_;             // 主干: 23个RRDB块的Sequential容器
+    torch::nn::Sequential body_;             // 主干: 23个RRDB块的Sequential容器，负责大部分人脸结构和纹理特征恢复
     torch::nn::Conv2d conv_body_{nullptr};   // 主干后卷积: 64 → 64
     torch::nn::Conv2d conv_up1_{nullptr};    // 第1次上采样后卷积: 64 → 64
     torch::nn::Conv2d conv_up2_{nullptr};    // 第2次上采样后卷积: 64 → 64（仅scale=4时）

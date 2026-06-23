@@ -4,6 +4,13 @@
  * @brief 数据集加载模块
  *
  * 用于加载和预处理人脸图像数据
+ *
+ * 数据流：
+ * HR 图像文件 -> resize 到 hr_size -> 读取同名 LR 或在线 Bicubic 下采样生成 LR
+ * -> 对 HR/LR 做同步增强 -> 转成 [C,H,W] float Tensor -> DataLoader 堆叠成 batch。
+ *
+ * 论文中的受控退化实验依赖这里的在线 Bicubic 路径：当 lr_dir 为空时，
+ * LR 由 HR 下采样得到，确保训练和验证的退化口径一致。
  */
 
 #include <torch/torch.h>
@@ -30,6 +37,9 @@ struct AugmentationConfig {
 
 /**
  * @brief 人脸超分辨率数据集
+ *
+ * 返回的 Example 中 data 是 LR，target 是 HR。
+ * 训练器约定 LR 形状为 [3,64,64]，HR 形状为 [3,256,256]，DataLoader 之后变为 [B,3,H,W]。
  */
 class FaceSRDataset : public torch::data::Dataset<FaceSRDataset> {
 public:

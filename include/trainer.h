@@ -15,6 +15,12 @@
 // 每个epoch的训练步骤:
 // 1. 训练判别器D: 让D能区分真实HR和生成SR
 // 2. 训练生成器G: 让G能骗过D，同时保持像素/感知精度
+//
+// 阅读提示：
+// - TrainConfig 负责把论文实验口径固定成可复现的超参数。
+// - Trainer 构造函数负责组装生成器、判别器、损失、优化器和 DataLoader。
+// - train_epoch() 是真正的一轮训练逻辑，三阶段开关由 get_training_phase() 返回。
+// - validate() 只评估生成器，输出 PSNR/SSIM 和一张 LR/SR/HR 对比图。
 // ============================================================================
 
 #include <torch/torch.h>
@@ -56,6 +62,8 @@ struct TrainConfig {
     int phase2_epochs = constants::PHASE2_END_EPOCH;  // 150: 阶段2结束
 
     // --- 损失权重 ---
+    // pixel/perceptual/gan 三项是当前核心损失。
+    // frequency_weight 和 gradient_weight 是后续扩展项，当前 CombinedLoss 不实际计算。
     double pixel_weight = constants::DEFAULT_PIXEL_WEIGHT;           // 1.0
     double perceptual_weight = constants::DEFAULT_PERCEPTUAL_WEIGHT; // 1.0
     double gan_weight = constants::DEFAULT_GAN_WEIGHT;               // 0.1
@@ -75,6 +83,8 @@ struct TrainConfig {
     int log_interval = constants::DEFAULT_LOG_INTERVAL;    // 每100步打印
 
     // --- 网络配置 ---
+    // use_attention 对应 A5/CBAM 消融；默认 false 对应论文最终采用的 A4 三阶段模型结构。
+    // use_spectral_norm 当前仅作为判别器构造参数保存，尚未真正包裹卷积层。
     std::string vgg_weights_path = "";  // VGG19预训练权重路径（感知损失需要）
     DeviceType device_type = DeviceType::Auto;  // 计算设备
     bool use_attention = constants::DEFAULT_USE_ATTENTION;            // CBAM注意力
@@ -236,7 +246,8 @@ private:
     // 根据配置初始化计算设备
     torch::Device initDevice() const;
 
-    // 根据epoch判断训练阶段（返回是否使用感知损失和GAN损失）
+    // 根据 epoch 判断训练阶段（返回是否使用感知损失和 GAN 损失）。
+    // 这两个 bool 直接传给 CombinedLoss，是论文三阶段训练策略在代码里的关键连接点。
     std::tuple<bool, bool> get_training_phase(int epoch) const;
 
     TrainConfig config_;  // 训练配置
